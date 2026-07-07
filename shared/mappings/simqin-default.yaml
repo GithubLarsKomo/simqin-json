@@ -1,0 +1,40 @@
+profile: simqin-default
+version: 0.2.0
+description: "Default SIMQIN / DITA-light mapping profile"
+
+rules:
+  # Document-level metadata
+  - match: "/topic/title"
+    target: "title"
+    type: "text"
+
+  - match: "//topic/@id"
+    target: "topic_id"
+    type: "attribute"
+
+  # Sections
+  - match: "//section"
+    target: "sections[]"
+    type: "object"
+
+  - match: "//chapter"
+    target: "sections[]"
+    type: "object"
+
+  # Tables
+  - match: "//table"
+    target: "tables[]"
+    type: "table"
+
+  # DITA-light elements
+  - match: "//shortdesc"
+    target: "short_description"
+    type: "text"
+
+  - match: "//concept/title"
+    target: "concept_title"
+    type: "text"
+
+  - match: "//task/title"
+    target: "task_title"
+    type: "text"

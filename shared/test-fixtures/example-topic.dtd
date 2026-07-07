@@ -1,0 +1,7 @@
+<!ELEMENT topic (title, body)>
+<!ATTLIST topic id ID #REQUIRED>
+<!ELEMENT title (#PCDATA)>
+<!ELEMENT body (section+)>
+<!ELEMENT section (title, p+)>
+<!ATTLIST section id ID #IMPLIED>
+<!ELEMENT p (#PCDATA)>

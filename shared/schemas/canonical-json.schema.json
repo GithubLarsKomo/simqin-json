@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SIMQIN Canonical JSON",
+  "type": "object",
+  "required": ["document", "metadata"],
+  "properties": {
+    "document": {
+      "type": "object",
+      "required": ["source_filename", "root"],
+      "properties": {
+        "source_filename": { "type": "string" },
+        "root": { "$ref": "#/$defs/node" }
+      }
+    },
+    "metadata": { "type": "object" }
+  },
+  "$defs": {
+    "node": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": { "enum": ["element", "text"] },
+        "name": { "type": ["string", "null"] },
+        "qualified_name": { "type": ["string", "null"] },
+        "namespace": { "type": ["string", "null"] },
+        "attributes": { "type": "object" },
+        "children": { "type": "array", "items": { "$ref": "#/$defs/node" } },
+        "text": { "type": "string" }
+      }
+    }
+  }
+}

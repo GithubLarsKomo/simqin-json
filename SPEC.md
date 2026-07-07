@@ -1,0 +1,168 @@
+# SPEC.md — SIMQIN XML to JSON Browser Microservice Platform
+
+## 1. Ziel
+
+Entwicklung einer browserbasierten Plattform, die SIMQIN-kompatible XML-Dokumente einliest, validiert, strukturell darstellt und als JSON exportiert.
+
+Die Plattform soll XML nicht nur flach konvertieren, sondern Struktur, Attribute, Textreihenfolge, Namespaces, Referenzen und Validierungsbefunde nachvollziehbar erhalten.
+
+## 2. Input
+
+Unterstützte Eingaben:
+
+- XML
+- DTD
+- XSD optional
+- DITA Topic / DITA Map optional
+- ZIP-Paket optional in späterer Phase
+- XML Catalog optional in späterer Phase
+
+## 3. Output
+
+Die Plattform erzeugt zwei JSON-Sichten:
+
+1. Canonical JSON
+   - verlustarme technische Abbildung des XML-Baums
+   - erhält Reihenfolge, Attribute, Namespaces und Textknoten
+
+2. Domain JSON
+   - fachlich normalisierte Darstellung
+   - geeignet für RAG, API-Integration, Review und Migration
+
+## 4. MVP Scope
+
+MVP enthält:
+
+- Browser Upload
+- FastAPI Backend
+- XML Parsing mit XXE-Schutz
+- DTD-Validierung
+- Canonical JSON Export
+- Domain JSON Export
+- Validierungsbericht
+- einfache React UI
+- Docker Compose
+- Test-Fixtures
+
+Nicht im MVP:
+
+- vollwertiger WYSIWYG Editor
+- kollaboratives Editing
+- CMS-Anbindung
+- komplexe DITA Map Resolution
+- Benutzerverwaltung
+
+## 5. Architektur
+
+```text
+Browser UI
+   |
+   v
+API Gateway / FastAPI
+   |
+   v
+Worker Library
+   |-- XML Parser
+   |-- DTD Validator
+   |-- Canonical Mapper
+   |-- Domain Mapper
+   |-- JSON Schema Checker
+```
+
+Für spätere Skalierung können Parser, Validator und Mapper in separate Services ausgelagert werden.
+
+## 6. Services
+
+### frontend-service
+
+Aufgaben:
+
+- Upload UI
+- XML-/JSON-Vorschau
+- Validierungsreport
+- Download Buttons
+
+### api-service
+
+Aufgaben:
+
+- REST API
+- Dateiannahme
+- Job-Erzeugung
+- Aufruf des Workers
+- Ergebnisbereitstellung
+
+### worker-service
+
+Aufgaben:
+
+- sicheres XML Parsing
+- Validierung
+- Transformation nach JSON
+- Berichtserzeugung
+
+## 7. Canonical JSON Format
+
+```json
+{
+  "document": {
+    "source_filename": "example.xml",
+    "root": {
+      "type": "element",
+      "name": "topic",
+      "namespace": null,
+      "attributes": {
+        "id": "t1"
+      },
+      "children": []
+    }
+  },
+  "metadata": {
+    "parser_version": "0.1.0",
+    "validated": true,
+    "schema_type": "DTD",
+    "errors": [],
+    "warnings": []
+  }
+}
+```
+
+## 8. Domain JSON Format
+
+```json
+{
+  "title": "Example Title",
+  "sections": [
+    {
+      "heading": "Section 1",
+      "body": "Text content",
+      "tables": [],
+      "figures": []
+    }
+  ],
+  "metadata": {}
+}
+```
+
+## 9. Security Anforderungen
+
+Pflicht:
+
+- keine ungeprüfte externe Entity-Auflösung
+- Parser mit `resolve_entities=false`
+- Dateigrößenlimit
+- MIME-/Extension-Prüfung
+- isolierter temporärer Speicher
+- keine Ausführung von eingebettetem Code
+- strukturierte Fehlerausgabe statt Stacktraces im Frontend
+
+## 10. Akzeptanzkriterien
+
+- Upload eines XML-Dokuments funktioniert.
+- Optionales DTD kann mitgeladen werden.
+- Valides XML erzeugt JSON.
+- Ungültiges XML erzeugt verständlichen Fehlerbericht.
+- Canonical JSON enthält alle Elemente, Attribute und Textknoten.
+- Domain JSON enthält Titel und Sections.
+- UI und API liefern konsistente Ergebnisse.
+- Docker Compose startet Frontend und API reproduzierbar.

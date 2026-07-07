@@ -1,0 +1,37 @@
+services:
+  api:
+    build: ./services/api
+    container_name: simqin-json-api
+    environment:
+      - STORAGE_DIR=/data/storage
+      - WORKER_BASE_URL=http://worker:8090
+    ports:
+      - "${API_PORT:-8080}:8080"
+    volumes:
+      - ./.storage:/data/storage
+      - ./shared:/app/shared:ro
+    depends_on:
+      - worker
+
+  worker:
+    build:
+      context: .
+      dockerfile: services/worker/Dockerfile
+    container_name: simqin-json-worker
+    environment:
+      - STORAGE_DIR=/data/storage
+    ports:
+      - "8090:8090"
+    volumes:
+      - ./.storage:/data/storage
+      - ./shared:/app/shared:ro
+
+  frontend:
+    build: ./frontend
+    container_name: simqin-json-frontend
+    environment:
+      - VITE_API_BASE_URL=http://localhost:${API_PORT:-8080}
+    ports:
+      - "${FRONTEND_PORT:-5173}:5173"
+    depends_on:
+      - api

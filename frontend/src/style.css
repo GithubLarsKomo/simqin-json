@@ -1,0 +1,120 @@
+/* ---------------------------------------------------------------------------
+   Base
+   --------------------------------------------------------------------------- */
+
+body { margin: 0; font-family: system-ui, sans-serif; background: #f6f7f9; color: #17202a; }
+main { max-width: 1200px; margin: 0 auto; padding: 32px; }
+header { margin-bottom: 24px; }
+h1 { margin: 0 0 4px; }
+header p { margin: 0; color: #566573; }
+
+/* ---------------------------------------------------------------------------
+   Cards
+   --------------------------------------------------------------------------- */
+
+.card { background: white; border: 1px solid #dde2e8; border-radius: 12px; padding: 20px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,.04); }
+
+/* ---------------------------------------------------------------------------
+   Upload form
+   --------------------------------------------------------------------------- */
+
+form { display: grid; gap: 16px; }
+label { display: grid; gap: 8px; font-weight: 600; }
+input, button { font: inherit; }
+button { width: fit-content; padding: 10px 16px; border-radius: 8px; border: 1px solid #9aa7b3; background: #fff; cursor: pointer; }
+button:disabled { opacity: .5; cursor: not-allowed; }
+
+/* ---------------------------------------------------------------------------
+   Error card
+   --------------------------------------------------------------------------- */
+
+.error-card { border-color: #e74c3c; }
+.error-card h2 { color: #e74c3c; margin: 0 0 12px; }
+.error-card pre { background: #3b1010; color: #f5b7b1; }
+
+/* ---------------------------------------------------------------------------
+   Summary bar
+   --------------------------------------------------------------------------- */
+
+.summary-bar {
+  padding: 12px 20px;
+  border-radius: 8px;
+  margin-bottom: 20px;
+  font-weight: 600;
+  font-size: 1rem;
+}
+.summary-ok { background: #d5f5e3; color: #1e8449; }
+.summary-fail { background: #fadbd8; color: #c0392b; }
+
+/* ---------------------------------------------------------------------------
+   Tabs
+   --------------------------------------------------------------------------- */
+
+.tabs { display: flex; gap: 4px; margin-bottom: 0; }
+.tab {
+  padding: 10px 20px;
+  border: 1px solid #dde2e8;
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  background: #f0f1f3;
+  cursor: pointer;
+  font-weight: 600;
+  color: #566573;
+  transition: background .15s, color .15s;
+}
+.tab:hover { background: #e2e4e8; }
+.tab-active { background: white; color: #17202a; border-bottom: 2px solid #2980b9; }
+.tab-content { border-top-left-radius: 0; margin-top: -1px; }
+.tab-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+.tab-header h2 { margin: 0; }
+
+/* ---------------------------------------------------------------------------
+   TreeView
+   --------------------------------------------------------------------------- */
+
+.tree-node { font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace; font-size: .9rem; }
+.tree-header { cursor: pointer; padding: 2px 0; border-radius: 4px; white-space: nowrap; }
+.tree-header:hover { background: #eaf2f8; }
+.tree-children { padding-left: 24px; border-left: 1px dotted #c5cdd5; margin-left: 8px; }
+.tree-label { color: #566573; }
+.tree-tag { color: #2980b9; }
+.tree-ns { color: #8e44ad; font-size: .8rem; }
+.tree-attr { color: #d35400; }
+.tree-text { padding: 2px 0; }
+.tree-value { color: #27ae60; }
+
+/* ---------------------------------------------------------------------------
+   Validation table
+   --------------------------------------------------------------------------- */
+
+.validation-table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+.validation-table th { text-align: left; padding: 8px 12px; border-bottom: 2px solid #dde2e8; color: #566573; }
+.validation-table td { padding: 8px 12px; border-bottom: 1px solid #eef0f2; }
+.validation-row:hover { background: #f8f9fa; }
+.badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-weight: 600; font-size: .8rem; }
+.badge-error { background: #fadbd8; color: #c0392b; }
+.badge-warning { background: #fdebd0; color: #ca6f1e; }
+.badge-info { background: #d6eaf8; color: #2471a3; }
+.validation-ok { font-size: 1.1rem; font-weight: 600; }
+
+/* ---------------------------------------------------------------------------
+   Pre blocks
+   --------------------------------------------------------------------------- */
+
+pre { background: #101820; color: #e8eef5; border-radius: 8px; padding: 16px; overflow: auto; max-height: 560px; font-size: .85rem; }
+
+/* ---------------------------------------------------------------------------
+   Responsive
+   --------------------------------------------------------------------------- */
+
+@media (max-width: 768px) {
+  main { padding: 16px; }
+  .tabs { flex-direction: column; gap: 2px; }
+  .tab { border-radius: 6px; border-bottom: 1px solid #dde2e8; text-align: left; }
+  .tab-active { border-bottom-color: #2980b9; }
+  .tab-content { border-top-left-radius: 8px; }
+  .tree-children { padding-left: 12px; }
+  .tree-header { white-space: normal; word-break: break-all; }
+  .validation-table { font-size: .8rem; }
+  .validation-table th, .validation-table td { padding: 6px 8px; }
+}

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE topic SYSTEM "example-topic.dtd">
+<topic id="t1">
+  <title>Example SIMQIN Topic</title>
+  <body>
+    <section id="s1">
+      <title>Purpose</title>
+      <p>This document demonstrates XML to JSON conversion.</p>
+    </section>
+    <section id="s2">
+      <title>Scope</title>
+      <p>The MVP preserves structure and creates a domain view.</p>
+    </section>
+  </body>
+</topic>
