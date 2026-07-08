@@ -41,6 +41,20 @@
 - [x] Strukturbaum (TreeView rekursiv)
 - [x] Responsive Design
 
+## ✅ Batch 5b — Phase 2 Erweiterungen (erledigt)
+
+- [x] YAML-Mapping-Upload (API + Worker)
+- [x] DITA Map Erkennung (map/bookmap)
+- [x] TopicRef-Extraktion (href, navtitle, scope, format, keys)
+- [x] Asset-Extraktion (image, fig, graphic)
+- [x] Referenz-Extraktion (xref, link)
+- [x] Verbesserte Tabellen (DITA + HTML)
+- [x] JSON Schema Endpoints (canonical + domain)
+- [x] Frontend: Assets/Referenzen/Schema-Tabs
+- [x] Frontend: YAML-Upload-Feld
+- [x] Frontend: Validierungsreport-Download (JSON + Text)
+- [x] 30 Tests (alle grün)
+
 ## ⬜ Batch 6 — Production Readiness (offen)
 
 - [ ] Authentifizierung

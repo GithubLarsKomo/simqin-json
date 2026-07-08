@@ -65,8 +65,21 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .tab:hover { background: #e2e4e8; }
 .tab-active { background: white; color: #17202a; border-bottom: 2px solid #2980b9; }
 .tab-content { border-top-left-radius: 0; margin-top: -1px; }
-.tab-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+.tab-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; flex-wrap: wrap; gap: 8px; }
 .tab-header h2 { margin: 0; }
+
+/* ---------------------------------------------------------------------------
+   Schema buttons
+   --------------------------------------------------------------------------- */
+
+.schema-buttons { display: flex; gap: 8px; }
+
+/* ---------------------------------------------------------------------------
+   Domain section (DITA map details)
+   --------------------------------------------------------------------------- */
+
+.domain-section { margin-bottom: 16px; }
+.domain-section summary { font-weight: 600; cursor: pointer; padding: 4px 0; }
 
 /* ---------------------------------------------------------------------------
    TreeView

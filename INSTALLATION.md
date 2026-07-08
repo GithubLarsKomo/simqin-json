@@ -90,18 +90,36 @@ docker compose down -v
 1. Browser öffnen: **http://localhost:5173**
 2. XML-Datei auswählen (z. B. `shared/test-fixtures/example-topic.xml`)
 3. Optional DTD-Datei mitladen (z. B. `shared/test-fixtures/example-topic.dtd`)
-4. **»Konvertieren«** klicken
-5. Ergebnisse erkunden:
+4. Optional YAML-Mapping-Profil mitladen (z. B. `shared/mappings/simqin-default.yaml`)
+5. **»Konvertieren«** klicken
+6. Ergebnisse in Tabs erkunden:
    - **Canonical JSON** — interaktiver XML-Baum
-   - **Domain JSON** — fachlich normalisiert
-   - **Validierungsreport** — tabellarische DTD-Fehler
+   - **Domain JSON** — fachlich normalisiert (mit DITA-Map-Details)
+   - **Assets** — extrahierte Bilder/Figures (falls vorhanden)
+   - **Referenzen** — extrahierte XRefs/Links (falls vorhanden)
+   - **Validierungsreport** — tabellarische DTD-Fehler (Download als JSON/Text)
+   - **Schema** — Canonical/Domain JSON Schema laden
 
 ### 3.2 Über die REST-API
 
 ```bash
+# Einfacher Upload
 curl -F "file=@shared/test-fixtures/example-topic.xml" \
      -F "dtd=@shared/test-fixtures/example-topic.dtd" \
      http://localhost:8080/api/v1/documents
+
+# Mit benutzerdefiniertem Mapping-Profil
+curl -F "file=@shared/test-fixtures/example-topic.xml" \
+     -F "mapping=@shared/mappings/simqin-default.yaml" \
+     http://localhost:8080/api/v1/documents
+
+# DITA Map verarbeiten
+curl -F "file=@shared/test-fixtures/example-ditamap.ditamap" \
+     http://localhost:8080/api/v1/documents
+
+# Schema abrufen
+curl http://localhost:8080/api/v1/schemas/canonical
+curl http://localhost:8080/api/v1/schemas/domain
 ```
 
 API-Dokumentation (Swagger UI): **http://localhost:8080/docs**
@@ -155,7 +173,7 @@ pip install -r requirements.txt   # enthält pytest
 pytest tests/ -v
 ```
 
-Aktuell: **25 Tests, alle grün.**
+Aktuell: **30 Tests, alle grün.**
 
 ---
 
@@ -179,10 +197,10 @@ simqin-json-platform/
 │       ├── setup.cfg           # pytest-Konfiguration
 │       ├── app/
 │       │   ├── main.py          # FastAPI-Worker-Endpoint
-│       │   ├── parser.py        # XML-Parser + Canonical JSON
+│       │   ├── parser.py        # XML-Parser + Canonical JSON + DITA/Assets
 │       │   └── mapper.py        # YAML-Mapping-Engine
 │       └── tests/
-│           ├── test_parser.py   # 14 Parser-Tests
+│           ├── test_parser.py   # 19 Parser-Tests
 │           └── test_mapper.py   # 11 Mapper-Tests
 │
 ├── frontend/                   # React + Vite
@@ -191,17 +209,19 @@ simqin-json-platform/
 │   ├── tsconfig.json
 │   ├── index.html
 │   └── src/
-│       ├── App.tsx             # Hauptkomponente
+│       ├── App.tsx             # Hauptkomponente (Tabs, TreeView, Schema)
 │       └── style.css
 │
 └── shared/                     # Service-übergreifend
     ├── schemas/
-    │   └── canonical-json.schema.json
+    │   ├── canonical-json.schema.json
+    │   └── domain-json.schema.json
     ├── mappings/
     │   └── simqin-default.yaml   # Mapping-Profil (v0.2.0)
     └── test-fixtures/
         ├── example-topic.xml
-        └── example-topic.dtd
+        ├── example-topic.dtd
+        └── example-ditamap.ditamap
 ```
 
 ---
@@ -252,7 +272,9 @@ Für den Produktionseinsatz müssen vor Inbetriebnahme folgende Punkte adressier
 |:--------|:-----|:-------------|
 | `GET` | `/health` | Health-Check (API) |
 | `GET` | `/health` | Health-Check (Worker) |
-| `POST` | `/api/v1/documents` | XML + optional DTD hochladen |
-| `POST` | `/api/v1/convert` | XML + optional DTD an Worker senden |
+| `POST` | `/api/v1/documents` | XML + optional DTD + optional Mapping YAML hochladen |
+| `POST` | `/api/v1/convert` | XML + optional DTD + optional Mapping an Worker senden |
+| `GET` | `/api/v1/schemas/canonical` | Canonical JSON Schema abrufen |
+| `GET` | `/api/v1/schemas/domain` | Domain JSON Schema abrufen |
 
 Detaillierte API-Dokumentation: **http://localhost:8080/docs** (nach Start).

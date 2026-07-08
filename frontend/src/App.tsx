@@ -47,10 +47,10 @@ type ConversionResult = {
   ok: boolean;
   validation: ValidationReport;
   canonical_json: CanonicalDoc | null;
-  domain_json: unknown;
+  domain_json: Record<string, unknown>;
 };
 
-type TabId = 'canonical' | 'domain' | 'validation';
+type TabId = 'canonical' | 'domain' | 'assets' | 'references' | 'validation' | 'schema';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -58,6 +58,16 @@ type TabId = 'canonical' | 'domain' | 'validation';
 
 function downloadJson(name: string, value: unknown) {
   const blob = new Blob([JSON.stringify(value, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function downloadText(name: string, value: string) {
+  const blob = new Blob([value], { type: 'text/plain' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -150,16 +160,49 @@ function ValidationReportView({ report }: { report: ValidationReport }) {
 }
 
 // ---------------------------------------------------------------------------
+// Assets / References list component
+// ---------------------------------------------------------------------------
+
+function ListView({ items }: { items: Record<string, unknown>[] }) {
+  if (!items || items.length === 0) {
+    return <p className="validation-ok">{statusIcon(true)} Keine Eintr\u00E4ge gefunden.</p>;
+  }
+  return (
+    <table className="validation-table">
+      <thead>
+        <tr>
+          {Object.keys(items[0]).map((k) => (
+            <th key={k}>{k}</th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {items.map((item, i) => (
+          <tr key={i} className="validation-row">
+            {Object.keys(items[0]).map((k) => (
+              <td key={k}>{String(item[k] ?? '\u2014')}</td>
+            ))}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // App
 // ---------------------------------------------------------------------------
 
 function App() {
   const [xml, setXml] = useState<File | null>(null);
   const [dtd, setDtd] = useState<File | null>(null);
+  const [mapping, setMapping] = useState<File | null>(null);
   const [result, setResult] = useState<ConversionResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<TabId>('canonical');
+  const [schema, setSchema] = useState<Record<string, unknown> | null>(null);
+  const [schemaError, setSchemaError] = useState<string | null>(null);
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -167,9 +210,12 @@ function App() {
     setBusy(true);
     setError(null);
     setResult(null);
+    setSchema(null);
+    setSchemaError(null);
     const form = new FormData();
     form.append('file', xml);
     if (dtd) form.append('dtd', dtd);
+    if (mapping) form.append('mapping', mapping);
     try {
       const res = await fetch(`${API_BASE}/api/v1/documents`, { method: 'POST', body: form });
       if (!res.ok) {
@@ -190,11 +236,29 @@ function App() {
     }
   }
 
+  async function loadSchema(kind: 'canonical' | 'domain') {
+    if (schema) return; // already loaded
+    setSchemaError(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/schemas/${kind}`);
+      if (!res.ok) throw new Error(await res.text());
+      setSchema(await res.json());
+      setTab('schema');
+    } catch (e) {
+      setSchemaError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  const domainData = result?.domain_json;
+  const assets = domainData?.assets as Record<string, unknown>[] | undefined;
+  const references = domainData?.references as Record<string, unknown>[] | undefined;
+  const ditaMap = domainData?.dita_map as Record<string, unknown> | undefined;
+
   return (
     <main>
       <header>
         <h1>SIMQIN XML \u2192 JSON</h1>
-        <p>XML/DTD einlesen, validieren und als Canonical JSON oder Domain JSON exportieren.</p>
+        <p>XML/DTD einlesen, validieren, DITA-Maps erkennen und als JSON exportieren.</p>
       </header>
 
       {/* Upload form */}
@@ -207,6 +271,10 @@ function App() {
           DTD (optional)
           <input type="file" accept=".dtd" onChange={e => setDtd(e.target.files?.[0] ?? null)} />
         </label>
+        <label>
+          Mapping YAML (optional)
+          <input type="file" accept=".yaml,.yml" onChange={e => setMapping(e.target.files?.[0] ?? null)} />
+        </label>
         <button disabled={!xml || busy}>
           {busy ? '\u23F3 Konvertiere\u2026' : 'Konvertieren'}
         </button>
@@ -217,6 +285,14 @@ function App() {
         <section className="card error-card">
           <h2>{'\u274C'} Fehler</h2>
           <pre>{error}</pre>
+        </section>
+      )}
+
+      {/* Schema error */}
+      {schemaError && (
+        <section className="card error-card">
+          <h2>{'\u274C'} Schema-Fehler</h2>
+          <pre>{schemaError}</pre>
         </section>
       )}
 
@@ -234,23 +310,27 @@ function App() {
 
           {/* Tabs */}
           <div className="tabs">
-            <button
-              className={`tab ${tab === 'canonical' ? 'tab-active' : ''}`}
-              onClick={() => setTab('canonical')}
-            >
+            <button className={`tab ${tab === 'canonical' ? 'tab-active' : ''}`} onClick={() => setTab('canonical')}>
               Canonical JSON
             </button>
-            <button
-              className={`tab ${tab === 'domain' ? 'tab-active' : ''}`}
-              onClick={() => setTab('domain')}
-            >
+            <button className={`tab ${tab === 'domain' ? 'tab-active' : ''}`} onClick={() => setTab('domain')}>
               Domain JSON
             </button>
-            <button
-              className={`tab ${tab === 'validation' ? 'tab-active' : ''}`}
-              onClick={() => setTab('validation')}
-            >
-              Validierungsreport
+            {assets && assets.length > 0 && (
+              <button className={`tab ${tab === 'assets' ? 'tab-active' : ''}`} onClick={() => setTab('assets')}>
+                Assets ({assets.length})
+              </button>
+            )}
+            {references && references.length > 0 && (
+              <button className={`tab ${tab === 'references' ? 'tab-active' : ''}`} onClick={() => setTab('references')}>
+                Referenzen ({references.length})
+              </button>
+            )}
+            <button className={`tab ${tab === 'validation' ? 'tab-active' : ''}`} onClick={() => setTab('validation')}>
+              Validierung
+            </button>
+            <button className={`tab ${tab === 'schema' ? 'tab-active' : ''}`} onClick={() => setTab('schema')}>
+              Schema
             </button>
           </div>
 
@@ -275,15 +355,72 @@ function App() {
                     {'\u2B07'} Download
                   </button>
                 </div>
+                {ditaMap && (
+                  <details open className="domain-section">
+                    <summary>DITA Map {ditaMap.title ? `\u2014 ${ditaMap.title}` : ''}</summary>
+                    <pre>{JSON.stringify(ditaMap, null, 2)}</pre>
+                  </details>
+                )}
                 <pre>{JSON.stringify(result.domain_json, null, 2)}</pre>
+              </>
+            )}
+            {tab === 'assets' && assets && (
+              <>
+                <div className="tab-header">
+                  <h2>Assets ({assets.length})</h2>
+                  <button onClick={() => downloadJson('assets.json', assets)}>
+                    {'\u2B07'} Download
+                  </button>
+                </div>
+                <ListView items={assets} />
+              </>
+            )}
+            {tab === 'references' && references && (
+              <>
+                <div className="tab-header">
+                  <h2>Referenzen ({references.length})</h2>
+                  <button onClick={() => downloadJson('references.json', references)}>
+                    {'\u2B07'} Download
+                  </button>
+                </div>
+                <ListView items={references} />
               </>
             )}
             {tab === 'validation' && (
               <>
                 <div className="tab-header">
                   <h2>Validierungsreport</h2>
+                  <button onClick={() => downloadJson('validation-report.json', result.validation)}>
+                    {'\u2B07'} Download JSON
+                  </button>
+                  <button onClick={() => downloadText('validation-report.txt', JSON.stringify(result.validation, null, 2))}>
+                    {'\u2B07'} Download Text
+                  </button>
                 </div>
                 <ValidationReportView report={result.validation} />
+              </>
+            )}
+            {tab === 'schema' && (
+              <>
+                <div className="tab-header">
+                  <h2>JSON Schema</h2>
+                  <div className="schema-buttons">
+                    <button onClick={() => { setSchema(null); loadSchema('canonical'); }}>
+                      Canonical Schema laden
+                    </button>
+                    <button onClick={() => { setSchema(null); loadSchema('domain'); }}>
+                      Domain Schema laden
+                    </button>
+                  </div>
+                </div>
+                {schema && (
+                  <>
+                    <button onClick={() => downloadJson('schema.json', schema)}>
+                      {'\u2B07'} Download
+                    </button>
+                    <pre>{JSON.stringify(schema, null, 2)}</pre>
+                  </>
+                )}
               </>
             )}
           </div>

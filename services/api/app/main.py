@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from typing import Optional
 
@@ -13,7 +14,6 @@ CORS_ORIGINS = os.getenv("CORS_ORIGINS", '["http://localhost:5173"]')
 
 app = FastAPI(title="SIMQIN JSON API", version="0.1.0")
 
-import json
 cors_origins = json.loads(CORS_ORIGINS) if isinstance(CORS_ORIGINS, str) else CORS_ORIGINS
 
 app.add_middleware(
@@ -24,25 +24,71 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ---------------------------------------------------------------------------
+# Load JSON schemas for serving
+# ---------------------------------------------------------------------------
+
+_SCHEMAS_DIR = os.path.normpath(
+    os.path.join(os.path.dirname(__file__), "..", "..", "..", "shared", "schemas")
+)
+
+
+def _load_schema(name: str) -> dict | None:
+    path = os.path.join(_SCHEMAS_DIR, name)
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            return json.load(fh)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Endpoints
+# ---------------------------------------------------------------------------
+
 
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok", "service": "api"}
 
 
+@app.get("/api/v1/schemas/canonical")
+def get_canonical_schema() -> dict:
+    schema = _load_schema("canonical-json.schema.json")
+    if schema is None:
+        raise HTTPException(status_code=404, detail="Canonical schema not found")
+    return schema
+
+
+@app.get("/api/v1/schemas/domain")
+def get_domain_schema() -> dict:
+    schema = _load_schema("domain-json.schema.json")
+    if schema is None:
+        raise HTTPException(status_code=404, detail="Domain schema not found")
+    return schema
+
+
 @app.post("/api/v1/documents")
 async def upload_document(
     file: UploadFile = File(...),
     dtd: Optional[UploadFile] = File(None),
+    mapping: Optional[UploadFile] = File(None),
 ) -> dict:
+    # Validate file size
     xml_bytes = await file.read()
     if len(xml_bytes) > MAX_UPLOAD_MB * 1024 * 1024:
         raise HTTPException(status_code=413, detail="File too large")
 
+    # Build multipart payload for the worker
     files = {"file": (file.filename, xml_bytes, file.content_type or "application/xml")}
+
     if dtd is not None:
         dtd_bytes = await dtd.read()
         files["dtd"] = (dtd.filename, dtd_bytes, dtd.content_type or "application/xml-dtd")
+
+    if mapping is not None:
+        mapping_bytes = await mapping.read()
+        files["mapping"] = (mapping.filename, mapping_bytes, "application/x-yaml")
 
     async with httpx.AsyncClient(timeout=60) as client:
         response = await client.post(f"{WORKER_BASE_URL}/api/v1/convert", files=files)

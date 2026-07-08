@@ -49,8 +49,20 @@ Nicht im MVP:
 - vollwertiger WYSIWYG Editor
 - kollaboratives Editing
 - CMS-Anbindung
-- komplexe DITA Map Resolution
+- komplexe DITA Map Resolution (Cross-Deliverable-Resolution)
 - Benutzerverwaltung
+
+## 4.1 Über den MVP hinaus (Phase 2)
+
+In Phase 2 wurden folgende Erweiterungen realisiert:
+
+- **YAML-Mapping-Upload** als Alternative zum Default-Profil
+- **DITA Map Erkennung** für `<map>`/`<bookmap>`-Root-Elemente
+- **TopicRef-Extraktion** mit href, navtitle, scope, format, keys (rekursiv)
+- **Asset-Extraktion** für `<image>`, `<fig>`, `<graphic>`
+- **Referenz-Extraktion** für `<xref>`, `<link>`
+- **Verbesserte Tabellen** für DITA- und HTML-Formate
+- **JSON Schema Endpoints** zum Abruf der Schemas
 
 ## 5. Architektur
 
@@ -140,9 +152,36 @@ Aufgaben:
       "figures": []
     }
   ],
+  "assets": [
+    { "type": "image", "href": "img/example.png", "alt": "Example" }
+  ],
+  "references": [
+    { "type": "xref", "href": "#topic-id", "text": "siehe oben" }
+  ],
+  "dita_map": {
+    "id": "my-map",
+    "title": "Example DITA Map",
+    "topicrefs": [
+      {
+        "href": "topics/overview.dita",
+        "navtitle": "Overview",
+        "scope": "local",
+        "format": "dita"
+      }
+    ]
+  },
   "metadata": {}
 }
 ```
+
+Das Domain JSON wird wahlweise über ein YAML-Mapping-Profil gesteuert (siehe `shared/mappings/simqin-default.yaml`). Assets (Bilder, Figures), Referenzen (XRefs, Links) und DITA-Map-Strukturen werden automatisch erkannt und angereichert.
+
+### 8.1 JSON Schema Endpoints
+
+Die Plattform stellt zwei Schema-Endpoints bereit:
+
+- `GET /api/v1/schemas/canonical` — Schema für Canonical JSON
+- `GET /api/v1/schemas/domain` — Schema für Domain JSON (inkl. assets, references, dita_map)
 
 ## 9. Security Anforderungen
 

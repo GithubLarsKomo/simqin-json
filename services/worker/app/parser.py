@@ -112,6 +112,123 @@ def _text_content(node: etree._Element) -> str:
     return " ".join("".join(node.itertext()).split())
 
 
+# ---------------------------------------------------------------------------
+# DITA map extraction
+# ---------------------------------------------------------------------------
+
+def _extract_topicrefs_recursive(elem: etree._Element) -> list[dict[str, Any]]:
+    """Recursively extract topicref entries from a DITA map element."""
+    refs: list[dict[str, Any]] = []
+    for child in elem:
+        try:
+            local = etree.QName(child).localname.lower()
+        except (ValueError, TypeError):
+            continue
+        if local != "topicref":
+            continue
+        entry: dict[str, Any] = {
+            "href": child.get("href") or child.get("href", ""),
+            "navtitle": child.get("navtitle", ""),
+            "scope": child.get("scope", "local"),
+            "format": child.get("format", "dita"),
+            "keys": child.get("keys", ""),
+        }
+        # Strip empties
+        entry = {k: v for k, v in entry.items() if v}
+        # Recurse into nested topicrefs
+        nested = _extract_topicrefs_recursive(child)
+        if nested:
+            entry["topicrefs"] = nested
+        refs.append(entry)
+    return refs
+
+
+def _extract_dita_map(root: etree._Element) -> dict[str, Any] | None:
+    """If *root* is a DITA map or bookmap, extract topicref tree."""
+    local = etree.QName(root).localname.lower()
+    if local not in ("map", "bookmap"):
+        return None
+    result: dict[str, Any] = {
+        "id": root.get("id", ""),
+        "title": root.get("title", ""),
+    }
+    # Try to find a <title> child
+    for child in root:
+        try:
+            if etree.QName(child).localname.lower() == "title":
+                result["title"] = _text_content(child)
+                break
+        except (ValueError, TypeError):
+            continue
+    topicrefs = _extract_topicrefs_recursive(root)
+    if topicrefs:
+        result["topicrefs"] = topicrefs
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Asset & reference extraction
+# ---------------------------------------------------------------------------
+
+ASSET_TAGS = {"image", "fig", "graphic"}
+REFERENCE_TAGS = {"xref", "link"}
+
+
+def _extract_assets(root: etree._Element) -> list[dict[str, Any]]:
+    """Extract image/figure assets from the document."""
+    assets: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for elem in root.iter():
+        try:
+            local = etree.QName(elem).localname.lower()
+        except (ValueError, TypeError):
+            continue
+        if local not in ASSET_TAGS:
+            continue
+        href = elem.get("href") or elem.get("href", "")
+        if not href or href in seen:
+            continue
+        seen.add(href)
+        asset: dict[str, Any] = {
+            "type": local,
+            "href": href,
+        }
+        alt = elem.get("alt") or elem.get("alt", "")
+        if not alt:
+            # look for <alt> child or <image> <alt>
+            for child in elem:
+                if etree.QName(child).localname.lower() == "alt":
+                    alt = _text_content(child)
+                    break
+        if alt:
+            asset["alt"] = alt
+        assets.append(asset)
+    return assets
+
+
+def _extract_references(root: etree._Element) -> list[dict[str, Any]]:
+    """Extract cross-references and links from the document."""
+    refs: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for elem in root.iter():
+        try:
+            local = etree.QName(elem).localname.lower()
+        except (ValueError, TypeError):
+            continue
+        if local not in REFERENCE_TAGS:
+            continue
+        href = elem.get("href") or elem.get("href", "")
+        if not href or href in seen:
+            continue
+        seen.add(href)
+        refs.append({
+            "type": local,
+            "href": href,
+            "text": _text_content(elem),
+        })
+    return refs
+
+
 def _domain_json(root: etree._Element) -> dict[str, Any]:
     title = None
     sections: list[dict[str, Any]] = []
@@ -223,7 +340,14 @@ def convert_xml(
     # Domain JSON via mapping profile or hardcoded fallback
     domain = apply_mapping(root, mapping_profile)
 
-    return {
+    # DITA map detection
+    dita_map = _extract_dita_map(root)
+
+    # Asset & reference extraction
+    assets = _extract_assets(root)
+    references = _extract_references(root)
+
+    result: dict[str, Any] = {
         "ok": len(validation_errors) == 0,
         "validation": {
             "valid": len(validation_errors) == 0,
@@ -234,3 +358,13 @@ def convert_xml(
         "canonical_json": canonical,
         "domain_json": domain,
     }
+
+    # Enrich domain JSON with extracted data (non-destructive)
+    if assets:
+        domain.setdefault("assets", assets)
+    if references:
+        domain.setdefault("references", references)
+    if dita_map is not None:
+        domain["dita_map"] = dita_map
+
+    return result

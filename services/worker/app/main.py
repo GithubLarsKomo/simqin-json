@@ -25,11 +25,21 @@ def health() -> dict:
 async def convert(
     file: UploadFile = File(...),
     dtd: UploadFile | None = File(None),
-    use_mapping: bool = True,
+    mapping: UploadFile | None = File(None),
 ) -> dict:
     xml_bytes = await file.read()
     dtd_bytes = await dtd.read() if dtd else None
-    profile = _default_profile if use_mapping else None
+
+    # Use uploaded mapping profile, else fall back to default
+    if mapping is not None:
+        mapping_bytes = await mapping.read()
+        try:
+            profile = MappingProfile.from_bytes(mapping_bytes)
+        except Exception:
+            profile = _default_profile
+    else:
+        profile = _default_profile
+
     return convert_xml(
         xml_bytes=xml_bytes,
         filename=file.filename or "document.xml",

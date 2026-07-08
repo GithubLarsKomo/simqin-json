@@ -146,12 +146,43 @@ def apply_mapping(root: etree._Element, profile: MappingProfile | None) -> dict[
 
 
 def _build_table(table_elem: etree._Element) -> dict[str, Any]:
-    """Extract a simple table representation from *table_elem*."""
+    """Extract a table representation from *table_elem*.
+
+    Supports:
+    - DITA: <row><entry>...</entry></row>
+    - HTML: <tr><td>...</td><th>...</th></tr>
+    """
     rows: list[list[str]] = []
+
+    # Try DITA-style rows first
     for row in table_elem.iterfind(".//row"):
         cells = [" ".join(cell.itertext()).strip() for cell in row.iterfind(".//entry")]
-        rows.append(cells)
-    return {"rows": rows}
+        if cells:
+            rows.append(cells)
+
+    # Fall back to HTML-style rows
+    if not rows:
+        for row in table_elem.iterfind(".//tr"):
+            cells = []
+            for cell in row.iterfind(".//td"):
+                cells.append(" ".join(cell.itertext()).strip())
+            for cell in row.iterfind(".//th"):
+                cells.append(" ".join(cell.itertext()).strip())
+            if cells:
+                rows.append(cells)
+
+    result: dict[str, Any] = {"rows": rows}
+
+    # Extract caption / title if any
+    for caption in table_elem.iterfind(".//caption"):
+        result["caption"] = " ".join(caption.itertext()).strip()
+        break
+    for title in table_elem.iterfind(".//title"):
+        if "caption" not in result:
+            result["caption"] = " ".join(title.itertext()).strip()
+            break
+
+    return result
 
 
 # ---------------------------------------------------------------------------

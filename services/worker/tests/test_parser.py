@@ -10,6 +10,7 @@ import pytest
 from lxml import etree
 
 from app.parser import convert_xml, _node_to_json, _validate_against_schema
+from app.mapper import MappingProfile
 
 HERE = Path(__file__).resolve().parent
 FIXTURES = HERE.parent.parent.parent / "shared" / "test-fixtures"
@@ -124,6 +125,75 @@ def test_domain_has_sections():
     assert len(sections) == 2
     assert sections[0]["heading"] == "Purpose"
     assert sections[1]["heading"] == "Scope"
+
+
+# ---------------------------------------------------------------------------
+# Custom mapping YAML
+# ---------------------------------------------------------------------------
+
+def test_custom_mapping_profile():
+    """A custom YAML mapping provided as bytes overrides the default profile."""
+    xml = _load_fixture("example-topic.xml")
+    custom_yaml = b"""
+profile: custom
+version: 1.0.0
+rules:
+  - match: "/topic/title"
+    target: "custom_title"
+    type: "text"
+"""
+    profile = MappingProfile.from_bytes(custom_yaml)
+    result = convert_xml(xml, "example-topic.xml", mapping_profile=profile)
+    assert result["domain_json"]["custom_title"] == "Example SIMQIN Topic"
+    # The default profile's 'title' key should NOT be present
+    assert "title" not in result["domain_json"]
+
+
+# ---------------------------------------------------------------------------
+# DITA map detection
+# ---------------------------------------------------------------------------
+
+def test_dita_map_topicrefs():
+    xml = _load_fixture("example-ditamap.ditamap")
+    result = convert_xml(xml, "example-ditamap.ditamap")
+    assert result["ok"] is True
+    domain = result["domain_json"]
+    assert "dita_map" in domain
+    dita_map = domain["dita_map"]
+    assert dita_map["id"] == "my-map"
+    assert "Example DITA Map" in dita_map["title"]
+    assert "topicrefs" in dita_map
+    # top-level topicrefs
+    top_level = dita_map["topicrefs"]
+    assert len(top_level) >= 2
+    # first topicref should have nested children
+    assert "topicrefs" in top_level[0]
+
+
+def test_dita_map_navtitle():
+    xml = _load_fixture("example-ditamap.ditamap")
+    result = convert_xml(xml, "example-ditamap.ditamap")
+    topicrefs = result["domain_json"]["dita_map"]["topicrefs"]
+    assert topicrefs[0]["navtitle"] == "Overview"
+    assert topicrefs[1]["navtitle"] == "Installation"
+
+
+def test_dita_map_scope_format():
+    xml = _load_fixture("example-ditamap.ditamap")
+    result = convert_xml(xml, "example-ditamap.ditamap")
+    topicrefs = result["domain_json"]["dita_map"]["topicrefs"]
+    # external reference
+    assert topicrefs[3]["scope"] == "external"
+    assert topicrefs[3]["format"] == "html"
+
+
+def test_dita_map_keys():
+    xml = _load_fixture("example-ditamap.ditamap")
+    result = convert_xml(xml, "example-ditamap.ditamap")
+    topicrefs = result["domain_json"]["dita_map"]["topicrefs"]
+    assert topicrefs[1]["keys"] == "install"
+    nested = topicrefs[1]["topicrefs"]
+    assert nested[1]["keys"] == "install-linux"
 
 
 # ---------------------------------------------------------------------------

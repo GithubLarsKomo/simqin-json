@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE map PUBLIC "-//OASIS//DTD DITA Map//EN" "map.dtd">
+<map id="my-map" title="Example DITA Map">
+  <title>Example DITA Map</title>
+  <topicref href="topics/overview.dita" navtitle="Overview" scope="local" format="dita">
+    <topicref href="topics/overview-intro.dita" navtitle="Introduction"/>
+  </topicref>
+  <topicref href="topics/installation.dita" navtitle="Installation" keys="install">
+    <topicref href="topics/install-windows.dita" navtitle="Windows Setup" keys="install-win"/>
+    <topicref href="topics/install-linux.dita" navtitle="Linux Setup" keys="install-linux"/>
+  </topicref>
+  <topicref href="topics/reference.dita" navtitle="Reference" scope="external" format="html"/>
+  <topicref href="https://example.com/manual" navtitle="Online Manual" scope="external" format="html"/>
+</map>

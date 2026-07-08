@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SIMQIN Domain JSON",
+  "type": "object",
+  "properties": {
+    "title": { "type": "string" },
+    "topic_id": { "type": "string" },
+    "short_description": { "type": "string" },
+    "sections": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "heading": { "type": "string" },
+          "body": { "type": "string" },
+          "tables": { "type": "array" },
+          "figures": { "type": "array" }
+        }
+      }
+    },
+    "assets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "type": { "type": "string" },
+          "href": { "type": "string" },
+          "alt": { "type": "string" }
+        }
+      }
+    },
+    "references": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "type": { "type": "string" },
+          "href": { "type": "string" },
+          "text": { "type": "string" }
+        }
+      }
+    },
+    "dita_map": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "topicrefs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "href": { "type": "string" },
+              "navtitle": { "type": "string" },
+              "scope": { "type": "string" },
+              "format": { "type": "string" },
+              "keys": { "type": "string" },
+              "topicrefs": { "type": "array" }
+            }
+          }
+        }
+      }
+    },
+    "metadata": { "type": "object" }
+  }
+}
