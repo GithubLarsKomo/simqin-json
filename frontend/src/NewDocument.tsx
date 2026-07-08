@@ -1,6 +1,10 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080';
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
 
 type TemplateInfo = { id: string; name: string; description: string };
 type Section = { heading: string; id: string; paragraphs: Paragraph[]; tables: TableBlock[]; images: ImageRef[]; links: LinkRef[] };
@@ -13,6 +17,12 @@ type AssetRef = { type: string; href: string; alt: string };
 type ReferenceRef = { type: string; href: string; text: string };
 type AuthoringDoc = { template: string; title: string; id: string; sections: Section[]; topicrefs: TopicRef[]; assets: AssetRef[]; references: ReferenceRef[] };
 type ValidationResult = { valid: boolean; errors: string[] };
+type Profile = { id: string; name: string; description: string; root_fields: string[]; allowed_children: Record<string, string[]>; allowed_attributes: Record<string, string[]>; required_fields: Record<string, string[]>; export_extension: string };
+type AllowedActions = { allowed_add: string[]; allowed_attributes: string[]; required_fields: string[]; can_delete: boolean; can_move_up: boolean; can_move_down: boolean };
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
 function dl(name: string, content: string) {
   const blob = new Blob([content], { type: 'text/plain' });
@@ -21,47 +31,294 @@ function dl(name: string, content: string) {
   URL.revokeObjectURL(url);
 }
 
-// --- Recursive topicref renderer for WYSIWYG ---
-function renderNestedTopicrefs(refs: TopicRef[]): React.ReactNode {
-  return <ul style={{paddingLeft:'1.5rem',margin:'4px 0'}}>
-    {refs.map(tr => <li key={tr.id}>{tr.navtitle||tr.href||'(leer)'}{tr.children.length>0 && renderNestedTopicrefs(tr.children)}</li>)}
-  </ul>;
+/** Get a value from a nested object using a dot-separated path like "sections.0.paragraphs.1" */
+function getByPath(obj: any, path: string): any {
+  const parts = path.split('.');
+  let cur = obj;
+  for (const p of parts) {
+    if (cur == null) return undefined;
+    const idx = parseInt(p, 10);
+    cur = Number.isNaN(idx) ? cur[p] : cur[idx];
+  }
+  return cur;
 }
 
-// --- Recursive TopicRefEditor component ---
-function TopicRefEditor({ tr, path, setNestedTr, rmNestedTr, addChildTr }: {
-  tr: TopicRef; path: number[];
-  setNestedTr: (path: number[], k: string, v: string) => void;
-  rmNestedTr: (path: number[]) => void;
-  addChildTr: (path: number[]) => void;
+/** Clone and set a value at a dot-separated path */
+function setByPathCloned(obj: any, path: string, value: any): any {
+  const parts = path.split('.');
+  const result = JSON.parse(JSON.stringify(obj));
+  let cur = result;
+  for (let i = 0; i < parts.length - 1; i++) {
+    const p = parts[i];
+    const idx = parseInt(p, 10);
+    cur = Number.isNaN(idx) ? cur[p] : cur[idx];
+  }
+  const last = parts[parts.length - 1];
+  const lastIdx = parseInt(last, 10);
+  if (Number.isNaN(lastIdx)) cur[last] = value;
+  else cur[lastIdx] = value;
+  return result;
+}
+
+/** Clone and remove item at dot-separated index path */
+function removeByPathCloned(obj: any, path: string): any {
+  const result = JSON.parse(JSON.stringify(obj));
+  const parts = path.split('.');
+  let cur = result;
+  for (let i = 0; i < parts.length - 1; i++) {
+    const p = parts[i];
+    const idx = parseInt(p, 10);
+    cur = Number.isNaN(idx) ? cur[p] : cur[idx];
+  }
+  const last = parts[parts.length - 1];
+  const lastIdx = parseInt(last, 10);
+  if (!Number.isNaN(lastIdx) && Array.isArray(cur)) cur.splice(lastIdx, 1);
+  return result;
+}
+
+/** Clone and move item up/down */
+function moveByPathCloned(obj: any, path: string, dir: 'up' | 'down'): any {
+  const result = JSON.parse(JSON.stringify(obj));
+  const parts = path.split('.');
+  let cur = result;
+  for (let i = 0; i < parts.length - 1; i++) {
+    const p = parts[i];
+    const idx = parseInt(p, 10);
+    cur = Number.isNaN(idx) ? cur[p] : cur[idx];
+  }
+  const last = parts[parts.length - 1];
+  const src = parseInt(last, 10);
+  if (Number.isNaN(src) || !Array.isArray(cur)) return result;
+  const dst = dir === 'up' ? src - 1 : src + 1;
+  if (dst < 0 || dst >= cur.length) return result;
+  [cur[src], cur[dst]] = [cur[dst], cur[src]];
+  return result;
+}
+
+/** Human-readable label for a node path */
+function nodeLabel(doc: AuthoringDoc, path: string): string {
+  if (path === 'doc') return doc.title || '(Dokument)';
+  const parts = path.split('.');
+  const rawType = parts[parts.length - 1];
+  const idx = parseInt(rawType, 10);
+  if (Number.isNaN(idx)) return rawType;
+
+  // Navigate along path to find context
+  let refs: TopicRef[] | null = null;
+  // sections
+  if (parts.length >= 3 && parts[parts.length - 2] === 'paragraphs') {
+    const si = parseInt(parts[parts.length - 3], 10);
+    const pi = idx;
+    const t = doc.sections[si]?.paragraphs[pi]?.text || '';
+    return `Absatz: ${t.substring(0, 25)}${t.length > 25 ? '…' : ''}`;
+  }
+  if (parts.length >= 3 && parts[parts.length - 2] === 'tables') {
+    const si = parseInt(parts[parts.length - 3], 10);
+    const ti = idx;
+    return doc.sections[si]?.tables[ti]?.caption || `Tabelle ${ti}`;
+  }
+  if (parts.length >= 3 && parts[parts.length - 2] === 'images') {
+    const si = parseInt(parts[parts.length - 3], 10);
+    const ii = idx;
+    return doc.sections[si]?.images[ii]?.src || `Bild ${ii}`;
+  }
+  if (parts.length >= 3 && parts[parts.length - 2] === 'links') {
+    const si = parseInt(parts[parts.length - 3], 10);
+    const li = idx;
+    return doc.sections[si]?.links[li]?.text || `Link ${li}`;
+  }
+  if (parts.some(p => p === 'sections') && parts.length >= 2) {
+    const si = parseInt(parts[parts.length - 1], 10);
+    return doc.sections[si]?.heading || `Abschnitt ${si}`;
+  }
+  if (parts.some(p => p === 'topicrefs')) {
+    let trefs: TopicRef[] = doc.topicrefs;
+    let label = '';
+    for (const p of parts) {
+      const pi = parseInt(p, 10);
+      if (!Number.isNaN(pi) && trefs[pi]) {
+        label = trefs[pi].navtitle || trefs[pi].href || `TopicRef ${pi}`;
+        trefs = trefs[pi].children;
+      }
+    }
+    return label;
+  }
+  if (parts.some(p => p === 'assets')) {
+    const ai = idx;
+    return doc.assets[ai]?.href || `Asset ${ai}`;
+  }
+  if (parts.some(p => p === 'references')) {
+    const ri = idx;
+    return doc.references[ri]?.href || `Referenz ${ri}`;
+  }
+  return rawType;
+}
+
+/** Determine block type from path */
+function blockType(path: string): string {
+  const p = path.split('.');
+  const last = p[p.length - 1];
+  if (path === 'doc') return 'doc';
+  if (last === 'sections' || (!Number.isNaN(parseInt(last, 10)) && p.includes('sections') && !p.includes('paragraphs') && !p.includes('tables') && !p.includes('images') && !p.includes('links'))) return 'section';
+  if (last === 'paragraphs' || (p.includes('paragraphs') && !Number.isNaN(parseInt(last, 10)))) return 'paragraph';
+  if (last === 'tables' || (p.includes('tables') && !Number.isNaN(parseInt(last, 10)))) return 'table';
+  if (last === 'images' || (p.includes('images') && !Number.isNaN(parseInt(last, 10)))) return 'image';
+  if (last === 'links' || (p.includes('links') && !Number.isNaN(parseInt(last, 10)))) return 'link';
+  if (last === 'topicrefs' || p.includes('topicrefs') || p.includes('children')) return 'topicref';
+  if (last === 'assets' || (p.includes('assets') && !Number.isNaN(parseInt(last, 10)))) return 'asset';
+  if (last === 'references' || (p.includes('references') && !Number.isNaN(parseInt(last, 10)))) return 'reference';
+  return last;
+}
+
+/** Parent block type for add-actions */
+function parentBlockTypeForAdd(path: string): string {
+  const p = path.split('.');
+  const bt = blockType(path);
+  if (bt === 'section' || bt === 'topicref' || bt === 'doc') return bt === 'section' ? 'section' : bt;
+  // For children of sections, parent is section
+  if (['paragraph', 'table', 'image', 'link'].includes(bt)) {
+    if (p.includes('sections')) return 'section';
+  }
+  if (bt === 'topicref') return 'topicref';
+  return 'doc';
+}
+
+// ---------------------------------------------------------------------------
+// Sub-components
+// ---------------------------------------------------------------------------
+
+function StructureTree({ doc, selectedPath, onSelect }: {
+  doc: AuthoringDoc; selectedPath: string; onSelect: (path: string) => void;
 }) {
-  const [open, setOpen] = useState(true);
-  return (
-    <div className="authoring-section topicref-nested">
-      <div className="section-header">
-        <button className="btn-icon" onClick={() => setOpen(!open)} style={{fontSize:'0.8rem',padding:'2px 6px'}}>
-          <span className="icon">{open ? '\u25BC' : '\u25B6'}</span>
-        </button>
-        <input type="text" value={tr.navtitle} onChange={e => setNestedTr(path,'navtitle',e.target.value)} placeholder="Navtitle" className="input-section-heading" />
-        <button onClick={() => addChildTr(path)} className="btn-icon" title="Unter-TopicRef hinzufügen"><span className="icon">+</span></button>
-        <button onClick={() => rmNestedTr(path)} className="btn-icon btn-danger"><span className="icon">{'\u2716'}</span></button>
-      </div>
-      {open && <>
-        <div className="inline-fields">
-          <input type="text" value={tr.href} onChange={e => setNestedTr(path,'href',e.target.value)} placeholder="href" className="input-half" />
-          <input type="text" value={tr.keys} onChange={e => setNestedTr(path,'keys',e.target.value)} placeholder="keys" className="input-half" />
+  const [expanded, setExpanded] = useState<Set<string>>(new Set(['doc']));
+
+  const toggle = (p: string) => setExpanded(prev => {
+    const n = new Set(prev); if (n.has(p)) n.delete(p); else n.add(p); return n;
+  });
+
+  const tn = (path: string, label: string, hasCh: boolean, depth: number) => {
+    const sel = selectedPath === path;
+    const exp = expanded.has(path);
+    return (
+      <div key={path}>
+        <div className={`tree-row ${sel ? 'tree-row-selected' : ''}`} style={{ paddingLeft: depth * 14 }} onClick={() => onSelect(path)}>
+          <span className="tree-toggle" onClick={(e) => { e.stopPropagation(); if (hasCh) toggle(path); }} style={{ visibility: hasCh ? 'visible' : 'hidden' }}>
+            {exp ? '\u25BC' : '\u25B6'}
+          </span>
+          <span className="tree-label">{label}</span>
         </div>
-        {tr.children.length > 0 && (
-          <div className="topicref-children">
-            {tr.children.map((child, ci) => (
-              <TopicRefEditor key={child.id||ci} tr={child} path={[...path, ci]} setNestedTr={setNestedTr} rmNestedTr={rmNestedTr} addChildTr={addChildTr} />
-            ))}
-          </div>
-        )}
-      </>}
+        {hasCh && exp && tc(path, depth + 1)}
+      </div>
+    );
+  };
+
+  const tc = (path: string, depth: number): React.ReactNode[] => {
+    const kids: React.ReactNode[] = [];
+    if (path === 'doc') {
+      kids.push(tn('doc', doc.title || '(Dokument)', true, depth));
+      doc.sections.forEach((sec, i) => {
+        const sp = `sections.${i}`;
+        kids.push(tn(sp, sec.heading || `Abschnitt ${i}`, true, 1));
+        if (expanded.has(sp)) {
+          sec.paragraphs.forEach((_, pi) => kids.push(tn(`${sp}.paragraphs.${pi}`, `Absatz ${pi}`, false, 2)));
+          sec.tables.forEach((_, ti) => kids.push(tn(`${sp}.tables.${ti}`, `Tabelle ${ti}`, false, 2)));
+          sec.images.forEach((_, ii) => kids.push(tn(`${sp}.images.${ii}`, `Bild ${ii}`, false, 2)));
+          sec.links.forEach((_, li) => kids.push(tn(`${sp}.links.${li}`, `Link ${li}`, false, 2)));
+        }
+      });
+      if (doc.template === 'dita-map') renderTRTree(doc.topicrefs, 'topicrefs', 1, kids);
+      doc.assets.forEach((_, i) => kids.push(tn(`assets.${i}`, `Asset ${i}`, false, 1)));
+      doc.references.forEach((_, i) => kids.push(tn(`references.${i}`, `Referenz ${i}`, false, 1)));
+    }
+    return kids;
+  };
+
+  const renderTRTree = (refs: TopicRef[], base: string, depth: number, kids: React.ReactNode[]) => {
+    refs.forEach((tr, i) => {
+      const tp = `${base}.${i}`;
+      kids.push(tn(tp, tr.navtitle || tr.href || `TR ${i}`, tr.children.length > 0, depth));
+      if (expanded.has(tp) && tr.children.length > 0) renderTRTree(tr.children, `${tp}.children`, depth + 1, kids);
+    });
+  };
+
+  return (
+    <div className="panel structure-tree">
+      <div className="panel-header">Struktur</div>
+      {tc('doc', 0)}
     </div>
   );
 }
+
+function Inspector({ doc, selectedPath, profile, onUpdate }: {
+  doc: AuthoringDoc; selectedPath: string; profile: Profile | null; onUpdate: (path: string, key: string, value: string) => void;
+}) {
+  const node = getByPath(doc, selectedPath);
+  const bt = blockType(selectedPath);
+  const attrs = profile?.allowed_attributes?.[bt] || [];
+
+  if (!node || typeof node !== 'object' || selectedPath === 'doc') {
+    return (
+      <div className="panel inspector">
+        <div className="panel-header">Inspektor</div>
+        <div className="panel-empty">Kein Element ausgewählt</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="panel inspector">
+      <div className="panel-header">Inspektor: {bt}</div>
+      <div className="inspector-fields">
+        {attrs.map(attr => {
+          if (attr === 'rows') return null;
+          const val = (node as any)[attr] ?? '';
+          if (attr === 'text' && bt === 'paragraph') {
+            return (
+              <div key={attr} className="inspector-field">
+                <label>{attr}</label>
+                <textarea rows={3} value={val} onChange={e => onUpdate(selectedPath, attr, e.target.value)} />
+              </div>
+            );
+          }
+          return (
+            <div key={attr} className="inspector-field">
+              <label>{attr}</label>
+              <input type="text" value={val} onChange={e => onUpdate(selectedPath, attr, e.target.value)} />
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function ActionBar({ actions, selectedPath, onAdd, onDelete, onMoveUp, onMoveDown }: {
+  actions: AllowedActions | null; selectedPath: string;
+  onAdd: (type: string) => void; onDelete: () => void; onMoveUp: () => void; onMoveDown: () => void;
+}) {
+  if (!actions || selectedPath === 'doc') return null;
+  return (
+    <div className="action-bar">
+      {actions.allowed_add.length > 0 && (
+        <div className="action-group">
+          <span className="action-label">+</span>
+          {actions.allowed_add.map(t => (
+            <button key={t} className="btn-sm" onClick={() => onAdd(t)}>{t}</button>
+          ))}
+        </div>
+      )}
+      <div className="action-group">
+        {actions.can_move_up && <button className="btn-sm" onClick={onMoveUp} title="Nach oben">{'\u25B2'}</button>}
+        {actions.can_move_down && <button className="btn-sm" onClick={onMoveDown} title="Nach unten">{'\u25BC'}</button>}
+        {actions.can_delete && <button className="btn-sm btn-danger-sm" onClick={onDelete}>{'\u2716'}</button>}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main component
+// ---------------------------------------------------------------------------
 
 export default function NewDocument({ onNavigateHome }: { onNavigateHome: () => void }) {
   const [templates, setTemplates] = useState<TemplateInfo[]>([]);
@@ -71,28 +328,41 @@ export default function NewDocument({ onNavigateHome }: { onNavigateHome: () => 
   const [xmlP, setXmlP] = useState('');
   const [jsonP, setJsonP] = useState('');
   const [err, setErr] = useState<string | null>(null);
-  const [ptab, setPtab] = useState<'wysiwyg' | 'xml' | 'json'>('wysiwyg');
+  const [ptab, setPtab] = useState<'xml' | 'json' | 'validation'>('xml');
+  const [selectedPath, setSelectedPath] = useState<string>('doc');
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [actions, setActions] = useState<AllowedActions | null>(null);
 
   useEffect(() => {
     fetch(`${API_BASE}/api/v1/templates`).then(r => r.json()).then(setTemplates).catch(e => setErr(String(e)));
   }, []);
 
   const pick = useCallback(async (id: string) => {
-    setTid(id); setVal(null); setXmlP(''); setJsonP(''); setErr(null);
+    setTid(id); setVal(null); setXmlP(''); setJsonP(''); setErr(null); setSelectedPath('doc');
     try {
       const r = await fetch(`${API_BASE}/api/v1/templates/${id}`);
-      if (!r.ok) { setErr(`Fehler beim Laden der Vorlage: ${r.status}`); return; }
-      const d: AuthoringDoc = await r.json();
-      setDoc(d);
-    } catch (ex: any) {
-      setErr(String(ex));
-    }
+      if (!r.ok) { setErr(`Fehler: ${r.status}`); return; }
+      const d: AuthoringDoc = await r.json(); setDoc(d);
+      const pr = await fetch(`${API_BASE}/api/v1/authoring/profiles/${id}`);
+      if (pr.ok) setProfile(await pr.json());
+    } catch (ex: any) { setErr(String(ex)); }
   }, []);
 
-  const upd = useCallback((fn: (d: AuthoringDoc) => void) => {
+  // Fetch allowed-actions on selection change
+  useEffect(() => {
+    if (!doc || !profile) return;
+    const pbt = parentBlockTypeForAdd(selectedPath);
+    fetch(`${API_BASE}/api/v1/authoring/allowed-actions`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ profile_id: profile.id, node_path: pbt === 'doc' ? 'doc' : pbt }),
+    }).then(r => r.ok ? r.json() : null).then(setActions).catch(() => {});
+  }, [doc, profile, selectedPath]);
+
+  const withDoc = (fn: (d: AuthoringDoc) => void) => {
     setDoc(prev => { if (!prev) return prev; const n = JSON.parse(JSON.stringify(prev)); fn(n); return n; });
-  }, []);
+  };
 
+  // Live preview/validation
   useEffect(() => {
     if (!doc) return;
     const t = setTimeout(() => {
@@ -106,46 +376,67 @@ export default function NewDocument({ onNavigateHome }: { onNavigateHome: () => 
     return () => clearTimeout(t);
   }, [doc]);
 
-  const setTitle = (v: string) => upd(d => { d.title = v; });
-  const addSec = () => upd(d => { d.sections.push({ heading: '', id: `s${d.sections.length+1}`, paragraphs: [{ text: '', id: `p${d.sections.length+1}` }], tables: [], images: [], links: [] }); });
-  const rmSec = (i: number) => upd(d => { d.sections.splice(i, 1); });
-  const setSH = (i: number, v: string) => upd(d => { d.sections[i].heading = v; });
-  const addP = (si: number) => upd(d => { d.sections[si].paragraphs.push({ text: '', id: `p${si}-${d.sections[si].paragraphs.length+1}` }); });
-  const setP = (si: number, pi: number, v: string) => upd(d => { d.sections[si].paragraphs[pi].text = v; });
-  const rmP = (si: number, pi: number) => upd(d => { if (d.sections[si].paragraphs.length > 1) d.sections[si].paragraphs.splice(pi, 1); });
-  const addT = (si: number) => upd(d => { d.sections[si].tables.push({ caption: '', id: `t${Date.now()}`, rows: [['A','B'],['','']] }); });
-  const setTC = (si: number, ti: number, v: string) => upd(d => { d.sections[si].tables[ti].caption = v; });
-  const setTCell = (si: number, ti: number, ri: number, ci: number, v: string) => upd(d => { d.sections[si].tables[ti].rows[ri][ci] = v; });
-  const addTR = (si: number, ti: number) => upd(d => { const c = d.sections[si].tables[ti].rows[0].length; d.sections[si].tables[ti].rows.push(new Array(c).fill('')); });
-  const rmT = (si: number, ti: number) => upd(d => { d.sections[si].tables.splice(ti, 1); });
-  const addImg = (si: number) => upd(d => { d.sections[si].images.push({ src: '', alt: '', id: `i${Date.now()}` }); });
-  const setImg = (si: number, ii: number, k: string, v: string) => upd(d => { (d.sections[si].images[ii] as any)[k] = v; });
-  const rmImg = (si: number, ii: number) => upd(d => { d.sections[si].images.splice(ii, 1); });
-  const addLnk = (si: number) => upd(d => { d.sections[si].links.push({ href: '', text: '', id: `l${Date.now()}` }); });
-  const setLnk = (si: number, li: number, k: string, v: string) => upd(d => { (d.sections[si].links[li] as any)[k] = v; });
-  const rmLnk = (si: number, li: number) => upd(d => { d.sections[si].links.splice(li, 1); });
-  // --- Recursive topicref helpers ---
-  const addTr = () => upd(d => { d.topicrefs.push({ href: '', navtitle: '', id: `tr${d.topicrefs.length+1}`, keys: '', children: [] }); });
-  const setTr = (i: number, k: string, v: string) => upd(d => { (d.topicrefs[i] as any)[k] = v; });
-  const rmTr = (i: number) => upd(d => { d.topicrefs.splice(i, 1); });
-  const setNestedTr = (path: number[], k: string, v: string) => upd(d => {
-    let refs = d.topicrefs;
-    for (let j = 0; j < path.length - 1; j++) refs = refs[path[j]].children;
-    (refs[path[path.length-1]] as any)[k] = v;
-  });
-  const rmNestedTr = (path: number[]) => upd(d => {
-    let refs = d.topicrefs;
-    for (let j = 0; j < path.length - 1; j++) refs = refs[path[j]].children;
-    refs.splice(path[path.length-1], 1);
-  });
-  const addChildTr = (path: number[]) => upd(d => {
-    let refs = d.topicrefs;
-    for (const idx of path) refs = refs[idx].children;
-    refs.push({ href: '', navtitle: '', id: `tr${Date.now()}`, keys: '', children: [] });
-  });
-  const addAs = () => upd(d => { d.assets.push({ type: 'image', href: '', alt: '' }); });
-  const setAs = (i: number, k: string, v: string) => upd(d => { (d.assets[i] as any)[k] = v; });
-  const rmAs = (i: number) => upd(d => { d.assets.splice(i, 1); });
+  // --- Mutations ---
+  const handleSetTitle = (v: string) => withDoc(d => { d.title = v; });
+
+  const handleUpdateField = (path: string, key: string, value: string) => {
+    setDoc(prev => prev ? setByPathCloned(prev, `${path}.${key}`, value) : prev);
+  };
+
+  const handleAdd = (type: string) => {
+    withDoc(d => {
+      const bt = blockType(selectedPath);
+      if (bt === 'section' || bt === 'doc') {
+        if (type === 'section') d.sections.push({ heading: '', id: `s${d.sections.length + 1}`, paragraphs: [{ text: '', id: 'p1' }], tables: [], images: [], links: [] });
+        else if (type === 'asset') d.assets.push({ type: 'image', href: '', alt: '' });
+        else if (type === 'reference') d.references.push({ type: 'xref', href: '', text: '' });
+        else if (type === 'topicref') d.topicrefs.push({ href: '', navtitle: '', id: `tr${d.topicrefs.length + 1}`, keys: '', children: [] });
+      } else if (bt === 'paragraph') {
+        const m = selectedPath.match(/sections\.(\d+)/);
+        if (m) {
+          const si = parseInt(m[1], 10);
+          if (type === 'paragraph') d.sections[si].paragraphs.push({ text: '', id: `p${Date.now()}` });
+          else if (type === 'table') d.sections[si].tables.push({ caption: '', id: `t${Date.now()}`, rows: [['A', 'B'], ['', '']] });
+          else if (type === 'image') d.sections[si].images.push({ src: '', alt: '', id: `i${Date.now()}` });
+          else if (type === 'link') d.sections[si].links.push({ href: '', text: '', id: `l${Date.now()}` });
+        }
+      } else if (bt === 'topicref') {
+        // Navigate to add child
+        const parts = selectedPath.split('.');
+        let refs: TopicRef[] = d.topicrefs;
+        for (const p of parts) {
+          const pi = parseInt(p, 10);
+          if (!Number.isNaN(pi) && refs[pi]) {
+            if (p === parts[parts.length - 1]) {
+              refs[pi].children.push({ href: '', navtitle: '', id: `tr${Date.now()}`, keys: '', children: [] });
+              break;
+            }
+            refs = refs[pi].children;
+          }
+        }
+      }
+    });
+  };
+
+  const handleDelete = () => {
+    if (selectedPath === 'doc') return;
+    const nd = removeByPathCloned(doc, selectedPath);
+    setDoc(nd); setSelectedPath('doc');
+  };
+
+  const handleMoveUp = () => {
+    const nd = moveByPathCloned(doc, selectedPath, 'up');
+    setDoc(nd);
+  };
+
+  const handleMoveDown = () => {
+    const nd = moveByPathCloned(doc, selectedPath, 'down');
+    setDoc(nd);
+  };
+
+  // Selection in WYSIWYG
+  const selSection = (i: number) => setSelectedPath(`sections.${i}`);
+  const selChild = (path: string, e: React.MouseEvent) => { e.stopPropagation(); setSelectedPath(path); };
 
   const expXml = async () => {
     if (!doc) return;
@@ -153,98 +444,157 @@ export default function NewDocument({ onNavigateHome }: { onNavigateHome: () => 
     if (!r.ok) return;
     const data = await r.json();
     const b = Uint8Array.from(atob(data.xml_base64), c => c.charCodeAt(0));
-    const base = (doc.title||'doc').replace(/[^a-zA-Z0-9]/g,'-');
-    const ext = doc.template === 'dita-map' ? '.ditamap' : doc.template === 'dita-topic' ? '.dita' : '.xml';
+    const base = (doc.title || 'doc').replace(/[^a-zA-Z0-9]/g, '-');
+    const ext = profile?.export_extension || (doc.template === 'dita-map' ? '.ditamap' : doc.template === 'dita-topic' ? '.dita' : '.xml');
     dl(base + ext, new TextDecoder('utf-8').decode(b));
   };
-  const expJson = () => { if (doc) dl((doc.title||'doc').replace(/[^a-zA-Z0-9]/g,'-')+'.json', JSON.stringify(doc, null, 2)); };
+  const expJson = () => { if (doc) dl((doc.title || 'doc').replace(/[^a-zA-Z0-9]/g, '-') + '.json', JSON.stringify(doc, null, 2)); };
   const impJson = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0]; if (!f) return;
     const reader = new FileReader();
-    reader.onload = () => { try { const d = JSON.parse(reader.result as string); setDoc(d); setTid(d.template||''); } catch (ex) { setErr(String(ex)); } };
-    reader.readAsText(f);
-    e.target.value = '';
+    reader.onload = () => {
+      try {
+        const d = JSON.parse(reader.result as string); setDoc(d); setTid(d.template || ''); setSelectedPath('doc');
+        fetch(`${API_BASE}/api/v1/authoring/profiles/${d.template}`).then(r => r.ok ? r.json() : null).then(setProfile).catch(() => {});
+      } catch (ex) { setErr(String(ex)); }
+    }; reader.readAsText(f); e.target.value = '';
   };
 
+  // --- Template selection ---
   if (!doc) {
     return (<main><header><h1>Neues Dokument erstellen</h1><p><button className="link-btn" onClick={onNavigateHome}>{'\u2190'} Zurück</button></p></header>
       {err && <div className="card error-card"><pre>{err}</pre></div>}
       <div className="card"><div className="template-grid">
-        {templates.map(t => (<div key={t.id} className={`template-card ${tid===t.id?'template-selected':''}`} onClick={() => pick(t.id)}>
+        {templates.map(t => (<div key={t.id} className={`template-card ${tid === t.id ? 'template-selected' : ''}`} onClick={() => pick(t.id)}>
           <h3>{t.name}</h3><p>{t.description}</p><button className="btn-primary">Auswählen</button></div>))}
-      </div><hr/>
-      <p><input type="file" accept=".json" onChange={impJson} /> JSON importieren</p></div></main>);
+      </div><hr />
+        <p><input type="file" accept=".json" onChange={impJson} /> JSON importieren</p></div></main>);
   }
 
-  return (<main><header><h1>{doc.template==='dita-topic'?'DITA Topic':doc.template==='sop'?'SOP':doc.template==='dita-map'?'DITA Map':doc.template}</h1>
-    <p><button className="link-btn" onClick={()=>{setDoc(null);setTid('');}}>{'\u2190'} Andere Vorlage</button></p></header>
-    {err && <div className="card error-card"><pre>{err}</pre></div>}
-    {val && <div className={`summary-bar ${val.valid?'summary-ok':'summary-fail'}`}>{val.valid?'\u2705 Gültig':`\u274C ${val.errors.length} Fehler`}</div>}
-    <div className="authoring-layout">
-      <div className="authoring-editor">
-        <div className="card"><label>Titel <input type="text" value={doc.title} onChange={e=>setTitle(e.target.value)} className="input-title" /></label></div>
-        <div className="card">
-          <div className="section-header"><h2>Sections</h2><button onClick={addSec} className="btn-icon"><span className="icon">+</span></button></div>
-          {doc.sections.map((sec, si) => (<div key={sec.id||si} className="authoring-section">
-            <div className="section-header"><input type="text" value={sec.heading} onChange={e=>setSH(si,e.target.value)} placeholder="Überschrift" className="input-section-heading" />
-              <button onClick={()=>rmSec(si)} className="btn-icon btn-danger"><span className="icon">{'\u2716'}</span></button></div>
-            {sec.paragraphs.map((p, pi) => (<div key={p.id||pi} className="paragraph-row">
-              <textarea rows={2} value={p.text} onChange={e=>setP(si,pi,e.target.value)} placeholder="Absatz" className="para-textarea" />
-              <button onClick={()=>rmP(si,pi)} className="btn-icon btn-danger" disabled={sec.paragraphs.length<=1}><span className="icon">{'\u2716'}</span></button></div>))}
-            <button onClick={()=>addP(si)} className="btn-link-sm"><span className="icon">+</span> Absatz</button>
-            {sec.tables.map((tbl, ti) => (<div key={tbl.id||ti} className="authoring-table">
-              <div className="section-header"><input type="text" value={tbl.caption} onChange={e=>setTC(si,ti,e.target.value)} placeholder="Tabellen-Titel" className="input-table-caption" />
-                <button onClick={()=>rmT(si,ti)} className="btn-icon btn-danger"><span className="icon">{'\u2716'}</span></button></div>
-              <table className="authoring-table-grid"><tbody>{tbl.rows.map((row, ri) => (<tr key={ri}>{row.map((cell, ci) => (<td key={ci}><input type="text" value={cell} onChange={e=>setTCell(si,ti,ri,ci,e.target.value)} className="input-table-cell" /></td>))}</tr>))}</tbody></table>
-              <button onClick={()=>addTR(si,ti)} className="btn-link-sm"><span className="icon">+</span> Zeile</button></div>))}
-            <button onClick={()=>addT(si)} className="btn-link-sm"><span className="icon">+</span> Tabelle</button>
-            {sec.images.map((img, ii) => (<div key={img.id||ii} className="inline-fields">
-              <input type="text" value={img.src} onChange={e=>setImg(si,ii,'src',e.target.value)} placeholder="Bild-URL" className="input-half" />
-              <input type="text" value={img.alt} onChange={e=>setImg(si,ii,'alt',e.target.value)} placeholder="alt" className="input-half" />
-              <button onClick={()=>rmImg(si,ii)} className="btn-icon btn-danger"><span className="icon">{'\u2716'}</span></button></div>))}
-            <button onClick={()=>addImg(si)} className="btn-link-sm"><span className="icon">+</span> Bild</button>
-            {sec.links.map((lnk, li) => (<div key={lnk.id||li} className="inline-fields">
-              <input type="text" value={lnk.href} onChange={e=>setLnk(si,li,'href',e.target.value)} placeholder="href" className="input-half" />
-              <input type="text" value={lnk.text} onChange={e=>setLnk(si,li,'text',e.target.value)} placeholder="Text" className="input-half" />
-              <button onClick={()=>rmLnk(si,li)} className="btn-icon btn-danger"><span className="icon">{'\u2716'}</span></button></div>))}
-            <button onClick={()=>addLnk(si)} className="btn-link-sm"><span className="icon">+</span> Link</button></div>))}
-        </div>
-        {doc.template==='dita-map' && <div className="card">
-          <div className="section-header"><h2>TopicRefs</h2><button onClick={addTr} className="btn-icon"><span className="icon">+</span></button></div>
-          {doc.topicrefs.map((tr, i) => <TopicRefEditor key={tr.id||i} tr={tr} path={[i]} setNestedTr={setNestedTr} rmNestedTr={rmNestedTr} addChildTr={addChildTr} />)}
-        </div>}
-        <div className="card"><div className="section-header"><h2>Assets</h2><button onClick={addAs} className="btn-icon"><span className="icon">+</span></button></div>
-          {doc.assets.map((a, i) => (<div key={i} className="inline-fields">
-            <input type="text" value={a.href} onChange={e=>setAs(i,'href',e.target.value)} placeholder="href" className="input-half" />
-            <input type="text" value={a.alt} onChange={e=>setAs(i,'alt',e.target.value)} placeholder="alt" className="input-half" />
-            <button onClick={()=>rmAs(i)} className="btn-icon btn-danger"><span className="icon">{'\u2716'}</span></button></div>))}</div>
-        <div className="card"><div className="export-buttons">
+  // --- Main editor ---
+  const bt = blockType(selectedPath);
+  const btLabel = bt === 'doc' ? 'Dokument' : bt === 'section' ? 'Abschnitt' : bt === 'paragraph' ? 'Absatz' : bt;
+
+  return (<main className="editor-main">
+    <header className="editor-header">
+      <div className="editor-header-left">
+        <button className="link-btn" onClick={() => { setDoc(null); setTid(''); setProfile(null); }}>{'\u2190'} Vorlage</button>
+        <h1>{profile?.name || doc.template}</h1>
+      </div>
+      <div className="editor-header-right">
+        <span className="sel-badge">{btLabel} ausgewählt</span>
+        <div className="export-buttons">
           <button onClick={expXml} className="btn-primary">{'\u2B07'} XML</button>
           <button onClick={expJson} className="btn-primary">{'\u2B07'} JSON</button>
-          <label className="btn-primary" style={{cursor:'pointer',padding:'10px 16px'}}>
-            {'\u2B07'} Import <input type="file" accept=".json" onChange={impJson} style={{display:'none'}} /></label>
-        </div></div>
+          <label className="btn-primary" style={{ cursor: 'pointer', padding: '10px 16px' }}>
+            {'\u2B07'} Import <input type="file" accept=".json" onChange={impJson} style={{ display: 'none' }} /></label>
+        </div>
       </div>
-      <div className="authoring-preview"><div className="card">
-        <div className="tabs">
-          <button className={`tab ${ptab==='wysiwyg'?'tab-active':''}`} onClick={()=>setPtab('wysiwyg')}>Vorschau</button>
-          <button className={`tab ${ptab==='xml'?'tab-active':''}`} onClick={()=>setPtab('xml')}>XML</button>
-          <button className={`tab ${ptab==='json'?'tab-active':''}`} onClick={()=>setPtab('json')}>JSON</button>
+    </header>
+    {err && <div className="card error-card"><pre>{err}</pre></div>}
+    {val && <div className={`summary-bar ${val.valid ? 'summary-ok' : 'summary-fail'}`} style={{ cursor: 'pointer' }} onClick={() => setPtab('validation')}>
+      {val.valid ? '\u2705 Gültig' : `\u274C ${val.errors.length} Fehler`}
+    </div>}
+
+    <div className="three-panel-layout">
+      {/* LEFT: Structure Tree */}
+      <div className="panel-left">
+        <StructureTree doc={doc} selectedPath={selectedPath} onSelect={setSelectedPath} />
+      </div>
+
+      {/* CENTER: WYSIWYG */}
+      <div className="panel-center">
+        <ActionBar actions={actions} selectedPath={selectedPath} onAdd={handleAdd} onDelete={handleDelete} onMoveUp={handleMoveUp} onMoveDown={handleMoveDown} />
+        <div className="card">
+          <label className="field-label">Titel <input type="text" value={doc.title} onChange={e => handleSetTitle(e.target.value)} className="input-title" /></label>
         </div>
-        <div className="tab-content preview-content">
-          {ptab==='wysiwyg' && <div className="wysiwyg-canvas"><h3>{doc.title||'(Titel)'}</h3>
-            {doc.sections.map(sec => <div key={sec.id}><h4>{sec.heading||'(Abschnitt)'}</h4>
-              {sec.paragraphs.map((p,i) => <p key={p.id||i}>{p.text||'(leer)'}</p>)}
-              {sec.tables.map(tbl => <div key={tbl.id} className="wysiwyg-table">{tbl.caption&&<p><strong>{tbl.caption}</strong></p>}
-                <table><tbody>{tbl.rows.map((row,ri) => <tr key={ri}>{row.map((cell,ci) => <td key={ci}>{cell||'\u00A0'}</td>)}</tr>)}</tbody></table></div>)}
-              {sec.images.map(img => <p key={img.id}>[Bild: {img.src||'(leer)'}]</p>)}
-              {sec.links.map(lnk => <p key={lnk.id}>[Link: {lnk.text||'(leer)'} &rarr; {lnk.href}]</p>)}
-            </div>)}
-            {doc.template==='dita-map'&&<div><h4>TopicRefs</h4>{renderNestedTopicrefs(doc.topicrefs)}</div>}
-          </div>}
-          {ptab==='xml' && <pre className="code-preview">{xmlP||'Generiere...'}</pre>}
-          {ptab==='json' && <pre className="code-preview">{jsonP||'Generiere...'}</pre>}
+        <div className="card wysiwyg-editor-card">
+          <div className="wysiwyg-canvas">
+            <h3>{doc.title || '(Titel)'}</h3>
+            {doc.sections.map((sec, si) => (
+              <div key={sec.id || si} className={`wysiwyg-block ${selectedPath === `sections.${si}` ? 'wysiwyg-block-selected' : ''}`} onClick={() => selSection(si)}>
+                <h4>{sec.heading || '(Abschnitt)'}</h4>
+                {sec.paragraphs.map((p, pi) => (
+                  <p key={p.id || pi} className={`wysiwyg-inline ${selectedPath === `sections.${si}.paragraphs.${pi}` ? 'wysiwyg-inline-selected' : ''}`} onClick={(e) => selChild(`sections.${si}.paragraphs.${pi}`, e)}>
+                    {p.text || '(leer)'}
+                  </p>
+                ))}
+                {sec.tables.map((tbl, ti) => (
+                  <div key={tbl.id || ti} className={`wysiwyg-table ${selectedPath === `sections.${si}.tables.${ti}` ? 'wysiwyg-block-selected' : ''}`} onClick={(e) => selChild(`sections.${si}.tables.${ti}`, e)}>
+                    {tbl.caption && <p><strong>{tbl.caption}</strong></p>}
+                    <table><tbody>{tbl.rows.map((row, ri) => <tr key={ri}>{row.map((cell, ci) => <td key={ci}>{cell || '\u00A0'}</td>)}</tr>)}</tbody></table>
+                  </div>
+                ))}
+                {sec.images.map((img, ii) => (
+                  <p key={img.id || ii} className={`wysiwyg-inline ${selectedPath === `sections.${si}.images.${ii}` ? 'wysiwyg-inline-selected' : ''}`} onClick={(e) => selChild(`sections.${si}.images.${ii}`, e)}>
+                    [Bild: {img.src || '(leer)'}]
+                  </p>
+                ))}
+                {sec.links.map((lnk, li) => (
+                  <p key={lnk.id || li} className={`wysiwyg-inline ${selectedPath === `sections.${si}.links.${li}` ? 'wysiwyg-inline-selected' : ''}`} onClick={(e) => selChild(`sections.${si}.links.${li}`, e)}>
+                    [Link: {lnk.text || '(leer)'} &rarr; {lnk.href}]
+                  </p>
+                ))}
+              </div>
+            ))}
+            {doc.template === 'dita-map' && (
+              <div className="wysiwyg-map">
+                <h4>TopicRefs</h4>
+                {renderNestedTR(doc.topicrefs, 'topicrefs', selectedPath, selChild)}
+              </div>
+            )}
+          </div>
         </div>
-      </div></div>
-    </div></main>);
+      </div>
+
+      {/* RIGHT: Inspector */}
+      <div className="panel-right">
+        <Inspector doc={doc} selectedPath={selectedPath} profile={profile} onUpdate={handleUpdateField} />
+      </div>
+    </div>
+
+    {/* Bottom tabs */}
+    <div className="bottom-tabs">
+      <div className="tabs">
+        <button className={`tab ${ptab === 'xml' ? 'tab-active' : ''}`} onClick={() => setPtab('xml')}>XML</button>
+        <button className={`tab ${ptab === 'json' ? 'tab-active' : ''}`} onClick={() => setPtab('json')}>JSON</button>
+        <button className={`tab ${ptab === 'validation' ? 'tab-active' : ''}`} onClick={() => setPtab('validation')}>
+          Validierung {val && !val.valid ? `(${val.errors.length})` : ''}
+        </button>
+      </div>
+      <div className="tab-content bottom-tab-content">
+        {ptab === 'xml' && <pre className="code-preview">{xmlP || 'Generiere...'}</pre>}
+        {ptab === 'json' && <pre className="code-preview">{jsonP || 'Generiere...'}</pre>}
+        {ptab === 'validation' && (
+          <div className="validation-panel">
+            {val ? (val.valid
+              ? <p className="validation-ok">{'\u2705'} Dokument ist gültig</p>
+              : <ul className="validation-errors">{val.errors.map((e, i) => <li key={i} className="validation-error-item">{e}</li>)}</ul>
+            ) : <p>Validierung läuft...</p>}
+          </div>
+        )}
+      </div>
+    </div>
+  </main>);
+}
+
+// ---------------------------------------------------------------------------
+// Recursive topicref renderer
+// ---------------------------------------------------------------------------
+
+function renderNestedTR(refs: TopicRef[], basePath: string, selectedPath: string, onSelect: (path: string, e: React.MouseEvent) => void): React.ReactNode {
+  return <ul style={{ paddingLeft: '1.5rem', margin: '4px 0' }}>
+    {refs.map((tr, i) => {
+      const tp = `${basePath}.${i}`;
+      return (
+        <li key={tr.id || i}
+          className={`wysiwyg-inline ${selectedPath === tp ? 'wysiwyg-inline-selected' : ''}`}
+          onClick={(e) => onSelect(tp, e)}
+        >
+          {tr.navtitle || tr.href || '(leer)'}
+          {tr.children.length > 0 && renderNestedTR(tr.children, `${tp}.children`, selectedPath, onSelect)}
+        </li>
+      );
+    })}
+  </ul>;
 }

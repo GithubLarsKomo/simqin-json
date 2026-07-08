@@ -78,6 +78,23 @@ In Phase 3 wurden folgende Erweiterungen realisiert:
 - **Rückkanal**: Authoring JSON → XML → convert_xml → Domain JSON (Roundtrip getestet)
 - **84 automatisierte Tests** (alle grün)
 
+## 4.3 Phase 3b — Structure-governed Authoring Editor (abgeschlossen)
+
+In Phase 3b wurde der strukturorientierte Editor realisiert:
+
+- **Authoring Profiles** pro Dokumenttyp: definieren erlaubte Felder, Kind-Elemente, Attribute und Export-Regeln
+- **REST-Endpoints**: `GET /api/v1/authoring/profiles`, `GET .../{profile_id}`, `POST /api/v1/authoring/allowed-actions`
+- **Profil-basierte Validierung**: Fehler enthalten den Node-Path für die UI
+- **3-Panel-Layout**:
+  - Links: **Strukturbaum** mit expandierbaren Knoten, Auswahl und Label-Anzeige
+  - Mitte: **WYSIWYG-Editor** mit selektierbaren Blöcken und Action-Bar
+  - Rechts: **Inspektor** mit editierbaren Attributen des selektierten Knotens
+- **Action-Bar**: zeigt nur die vom Profil erlaubten "Add"-Aktionen an
+- **Move up/down** und **Delete** für Blöcke
+- **Live-Vorschau** in XML, JSON und Validierung als Bottom-Tabs
+- **98 automatisierte Tests** (alle grün)
+- **Frontend-Build** (`npm run build`) erfolgreich
+
 ## 5. Architektur
 
 ```text

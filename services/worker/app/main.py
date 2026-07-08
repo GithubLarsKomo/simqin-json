@@ -10,6 +10,7 @@ from .parser import convert_xml
 from .mapper import MappingProfile, MappingValidationError
 from .authoring import AuthoringDoc, AuthoringValidationError
 from .templates import list_templates, get_template, create_document
+from .profiles import list_profiles, get_profile, get_allowed_actions, validate_with_profile
 from .xml_writer import render_document_xml, render_document_json
 
 # ---------------------------------------------------------------------------
@@ -32,15 +33,6 @@ if os.path.isfile(_profile_path):
 
 class AuthoringRequest(BaseModel):
     document: dict[str, Any]
-
-
-class AuthoringValidateRequest(BaseModel):
-    document: dict[str, Any]
-
-
-class ValidationResult(BaseModel):
-    valid: bool
-    errors: list[str]
 
 
 # ---------------------------------------------------------------------------
@@ -137,12 +129,60 @@ def render_json(req: AuthoringRequest) -> dict:
         raise HTTPException(status_code=400, detail=str(exc))
 
 
-@app.post("/api/v1/authoring/validate")
-def validate_authoring(req: AuthoringValidateRequest) -> dict:
-    """Validate an Authoring JSON document and return errors."""
+# ---------------------------------------------------------------------------
+# Authoring profile endpoints
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/v1/authoring/profiles")
+def get_profiles() -> list[dict]:
+    """Return all available authoring profiles."""
+    return list_profiles()
+
+
+@app.get("/api/v1/authoring/profiles/{profile_id}")
+def get_profile_by_id(profile_id: str) -> dict:
+    """Return the full profile for a given profile ID."""
     try:
-        doc = AuthoringDoc.from_dict(req.document)
-        errors = doc.validate()
+        return get_profile(profile_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
+class AllowedActionsRequest(BaseModel):
+    profile_id: str
+    node_path: str
+
+
+@app.post("/api/v1/authoring/allowed-actions")
+def allowed_actions(req: AllowedActionsRequest) -> dict:
+    """Return allowed actions for a node path within a profile."""
+    try:
+        return get_allowed_actions(req.profile_id, req.node_path)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
+# ---------------------------------------------------------------------------
+# Updated authoring validation (profile-aware)
+# ---------------------------------------------------------------------------
+
+
+class AuthoringValidateWithProfileRequest(BaseModel):
+    document: dict[str, Any]
+    profile_id: str | None = None
+
+
+@app.post("/api/v1/authoring/validate")
+def validate_authoring(req: AuthoringValidateWithProfileRequest) -> dict:
+    """Validate an Authoring JSON document using its profile.
+
+    Falls back to the document's own 'template' field if no profile_id
+    is given.
+    """
+    try:
+        pid = req.profile_id or req.document.get("template", "dita-topic")
+        errors = validate_with_profile(req.document, pid)
         return {"valid": len(errors) == 0, "errors": errors}
     except Exception as exc:
         return {"valid": False, "errors": [str(exc)]}

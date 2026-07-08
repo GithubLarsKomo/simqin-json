@@ -77,7 +77,22 @@
 - [x] 84 Tests (alle grün)
 - [x] Roundtrip: Authoring JSON → XML → convert_xml → domain_json
 
-## ⬜ Batch 6 — Production Readiness (offen)
+## ✅ Phase 3b — Structure-governed Authoring Editor (erledigt)
+
+- [x] Authoring Profiles pro Dokumenttyp (dita-topic, sop, dita-map)
+- [x] Jedes Profil definiert: allowed root fields, allowed children, required fields, allowed attributes, export extension
+- [x] GET /api/v1/authoring/profiles
+- [x] GET /api/v1/authoring/profiles/{profile_id}
+- [x] POST /api/v1/authoring/allowed-actions
+- [x] Profile-basierte Validierung (validate_with_profile)
+- [x] Frontend: 3-Panel-Layout (Strukturbaum links, WYSIWYG mitte, Inspektor rechts)
+- [x] Strukturbaum mit expandierbaren Knoten und Auswahl
+- [x] Inspektor zeigt editierbare Attribute des selektierten Knotens
+- [x] Action-Bar zeigt nur erlaubte "Add"-Aktionen (laut Profil)
+- [x] Move up/down für Blöcke
+- [x] Delete für selektierte Knoten
+- [x] Live-Vorschau, XML, JSON, Validierungs-Tabs unten
+- [x] 98 Tests (alle grün)
 
 - [ ] Authentifizierung
 - [ ] Persistenz (MinIO/S3)

@@ -179,3 +179,46 @@ async def authoring_validate(body: AuthoringJSONBody) -> dict:
     if resp.status_code >= 400:
         raise HTTPException(status_code=resp.status_code, detail=resp.text)
     return resp.json()
+
+
+# ---------------------------------------------------------------------------
+# Authoring profile endpoints (proxy to worker)
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/v1/authoring/profiles")
+async def get_profiles() -> list[dict]:
+    """Proxy: list authoring profiles from worker."""
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.get(f"{WORKER_BASE_URL}/api/v1/authoring/profiles")
+    if resp.status_code >= 400:
+        raise HTTPException(status_code=resp.status_code, detail=resp.text)
+    return resp.json()
+
+
+@app.get("/api/v1/authoring/profiles/{profile_id}")
+async def get_profile_by_id(profile_id: str) -> dict:
+    """Proxy: get full profile from worker."""
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.get(f"{WORKER_BASE_URL}/api/v1/authoring/profiles/{profile_id}")
+    if resp.status_code >= 400:
+        raise HTTPException(status_code=resp.status_code, detail=resp.text)
+    return resp.json()
+
+
+class AllowedActionsBody(BaseModel):
+    profile_id: str
+    node_path: str
+
+
+@app.post("/api/v1/authoring/allowed-actions")
+async def allowed_actions(body: AllowedActionsBody) -> dict:
+    """Proxy: get allowed actions for a node path."""
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.post(
+            f"{WORKER_BASE_URL}/api/v1/authoring/allowed-actions",
+            json={"profile_id": body.profile_id, "node_path": body.node_path},
+        )
+    if resp.status_code >= 400:
+        raise HTTPException(status_code=resp.status_code, detail=resp.text)
+    return resp.json()
