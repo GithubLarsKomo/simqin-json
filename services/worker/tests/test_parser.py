@@ -144,9 +144,12 @@ rules:
 """
     profile = MappingProfile.from_bytes(custom_yaml)
     result = convert_xml(xml, "example-topic.xml", mapping_profile=profile)
-    assert result["domain_json"]["custom_title"] == "Example SIMQIN Topic"
-    # The default profile's 'title' key should NOT be present
-    assert "title" not in result["domain_json"]
+    domain = result["domain_json"]
+    assert domain["custom_title"] == "Example SIMQIN Topic"
+    # Structural fields are always present even with custom mapping
+    assert domain["title"] is None  # not mapped, but field exists
+    assert domain["sections"] == []
+    assert domain["_mapping"]["profile"] == "custom"
 
 
 # ---------------------------------------------------------------------------
@@ -405,26 +408,70 @@ def test_simpletable_extraction():
 # ---------------------------------------------------------------------------
 
 def test_domain_json_matches_schema():
-    """Produced domain_json should validate against the domain schema."""
+    """Produced domain_json SHOULD validate against domain-json.schema.json (Draft 2020-12)."""
     import json
+    from jsonschema import Draft202012Validator, ValidationError
+
     schema_path = HERE.parent.parent.parent / "shared" / "schemas" / "domain-json.schema.json"
     with open(schema_path, "r") as fh:
         schema = json.load(fh)
 
+    validator = Draft202012Validator(schema)
+
+    # Test with default profile + DITA map
     xml = _load_fixture("example-topic.xml")
     result = convert_xml(xml, "example-topic.xml")
     domain = result["domain_json"]
+    errors = list(validator.iter_errors(domain))
+    assert not errors, f"Domain JSON schema errors: {[e.message for e in errors]}"
 
-    # Lightweight structural validation
-    assert "title" in domain
-    assert "sections" in domain
-    assert "assets" in domain
-    assert isinstance(domain["assets"], list)
-    assert "references" in domain
-    assert isinstance(domain["references"], list)
-    for sec in domain["sections"]:
-        assert "heading" in sec
-        assert "body" in sec
+    # Test with custom mapping profile — should still validate
+    custom_yaml = b"""
+profile: custom-test
+version: 2.0.0
+rules:
+  - match: "/topic/title"
+    target: "my_title"
+    type: "text"
+"""
+    from app.mapper import MappingProfile
+    profile = MappingProfile.from_bytes(custom_yaml)
+    result2 = convert_xml(xml, "custom-test.xml", mapping_profile=profile)
+    domain2 = result2["domain_json"]
+    errors2 = list(validator.iter_errors(domain2))
+    assert not errors2, f"Custom mapping domain JSON schema errors: {[e.message for e in errors2]}"
+
+    # Verify structural fields are present even with custom mapping
+    assert domain2.get("title") is None
+    assert domain2.get("sections") == []
+    assert domain2.get("_mapping", {}).get("profile") == "custom-test"
+    # Custom fields appear alongside structural fields
+    assert domain2.get("my_title") == "Example SIMQIN Topic"
+
+    # Test DITA map
+    xml3 = _load_fixture("example-ditamap.ditamap")
+    result3 = convert_xml(xml3, "example-ditamap.ditamap")
+    domain3 = result3["domain_json"]
+    errors3 = list(validator.iter_errors(domain3))
+    assert not errors3, f"DITA map domain JSON schema errors: {[e.message for e in errors3]}"
+
+
+def test_canonical_json_matches_schema():
+    """Produced canonical_json SHOULD validate against canonical-json.schema.json."""
+    import json
+    from jsonschema import Draft202012Validator
+
+    schema_path = HERE.parent.parent.parent / "shared" / "schemas" / "canonical-json.schema.json"
+    with open(schema_path, "r") as fh:
+        schema = json.load(fh)
+
+    validator = Draft202012Validator(schema)
+
+    xml = _load_fixture("example-topic.xml")
+    result = convert_xml(xml, "example-topic.xml")
+    canonical = result["canonical_json"]
+    errors = list(validator.iter_errors(canonical))
+    assert not errors, f"Canonical JSON schema errors: {[e.message for e in errors]}"
 
 
 # ---------------------------------------------------------------------------

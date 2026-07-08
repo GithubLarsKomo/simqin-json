@@ -3,10 +3,13 @@
   "title": "SIMQIN Domain JSON",
   "type": "object",
   "required": ["title", "sections", "assets", "references", "metadata"],
+  "additionalProperties": true,
   "properties": {
     "title": { "type": ["string", "null"] },
     "topic_id": { "type": "string" },
     "short_description": { "type": "string" },
+    "concept_title": { "type": "string" },
+    "task_title": { "type": "string" },
     "sections": {
       "type": "array",
       "items": { "$ref": "#/$defs/section" }
@@ -23,6 +26,8 @@
     "metadata": { "type": "object" },
     "_mapping": {
       "type": "object",
+      "required": ["profile", "version", "rule_count", "warnings"],
+      "additionalProperties": false,
       "properties": {
         "profile": { "type": "string" },
         "version": { "type": "string" },
@@ -34,17 +39,26 @@
   "$defs": {
     "section": {
       "type": "object",
+      "required": ["heading", "body"],
+      "additionalProperties": true,
       "properties": {
         "id": { "type": "string" },
         "heading": { "type": ["string", "null"] },
         "body": { "type": "string" },
-        "tables": { "type": "array", "items": { "$ref": "#/$defs/table" } },
-        "figures": { "type": "array", "items": { "$ref": "#/$defs/figure" } }
+        "tables": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/table" }
+        },
+        "figures": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/figure" }
+        }
       }
     },
     "asset": {
       "type": "object",
       "required": ["type", "href"],
+      "additionalProperties": true,
       "properties": {
         "type": { "type": "string" },
         "href": { "type": "string" },
@@ -58,6 +72,7 @@
     "reference": {
       "type": "object",
       "required": ["type", "href", "text"],
+      "additionalProperties": true,
       "properties": {
         "type": { "type": "string" },
         "href": { "type": "string" },
@@ -70,6 +85,8 @@
     },
     "table": {
       "type": "object",
+      "required": ["rows"],
+      "additionalProperties": true,
       "properties": {
         "rows": {
           "type": "array",
@@ -83,6 +100,7 @@
     },
     "figure": {
       "type": "object",
+      "additionalProperties": true,
       "properties": {
         "title": { "type": "string" },
         "image": { "type": "string" }
@@ -90,6 +108,8 @@
     },
     "dita_map": {
       "type": "object",
+      "required": ["id", "title", "topicrefs"],
+      "additionalProperties": true,
       "properties": {
         "id": { "type": "string" },
         "title": { "type": "string" },
@@ -101,6 +121,7 @@
     },
     "topicref": {
       "type": "object",
+      "additionalProperties": true,
       "properties": {
         "href": { "type": "string" },
         "navtitle": { "type": "string" },

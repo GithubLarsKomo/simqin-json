@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+import pytest
 from lxml import etree
 
 from app.mapper import (
@@ -129,7 +130,8 @@ def test_empty_profile():
 
 
 def test_invalid_xpath_in_profile():
-    """An invalid XPath in a profile should produce a warning, not crash."""
+    """An invalid XPath in a profile MUST raise MappingValidationError (HTTP 400)."""
+    from app.mapper import MappingValidationError
     yaml_bytes = b"""
 profile: badxpath
 version: 1.0.0
@@ -138,9 +140,9 @@ rules:
     target: "x"
     type: "text"
 """
-    profile = MappingProfile.from_bytes(yaml_bytes)
-    assert len(profile.rules) == 0  # rule was skipped
-    assert any("invalid" in w.lower() for w in profile.warnings)
+    with pytest.raises(MappingValidationError) as excinfo:
+        MappingProfile.from_bytes(yaml_bytes)
+    assert "XPath" in str(excinfo.value) or "invalid" in str(excinfo.value).lower()
 
 
 def test_no_match():

@@ -108,6 +108,15 @@ class MappingProfile:
                     f"{prefix}: invalid type {rule_type!r} — must be one of {valid}."
                 )
 
+            # Validate XPath syntax — hard error if invalid
+            if "match" in entry and isinstance(entry["match"], str) and entry["match"].strip():
+                try:
+                    etree.XPath(entry["match"])
+                except etree.XPathSyntaxError as exc:
+                    errors.append(
+                        f"{prefix}: invalid XPath expression {entry['match']!r} — {exc}"
+                    )
+
         return errors
 
     # ------------------------------------------------------------------
@@ -145,26 +154,16 @@ class MappingProfile:
         rules_raw = raw["rules"]
 
         rules: list[MappingRule] = []
-        rule_warnings: list[str] = []
 
         for i, entry in enumerate(rules_raw):
             match_str = entry["match"]
             target_str = entry["target"]
             type_str = entry.get("type", "text")
-            try:
-                rule = MappingRule(match=match_str, target=target_str, type=type_str)
-                rules.append(rule)
-            except etree.XPathSyntaxError as exc:
-                rule_warnings.append(
-                    f"rules[{i}]: invalid XPath {match_str!r} — {exc}. Rule skipped."
-                )
+            # XPath already validated in _validate_raw — this should not fail
+            rule = MappingRule(match=match_str, target=target_str, type=type_str)
+            rules.append(rule)
 
-        return cls(
-            name=name,
-            version=version,
-            rules=rules,
-            warnings=rule_warnings,
-        )
+        return cls(name=name, version=version, rules=rules)
 
     @staticmethod
     def default_profile_path() -> str:

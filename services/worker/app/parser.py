@@ -399,6 +399,13 @@ def convert_xml(
     # Domain JSON via mapping profile or hardcoded fallback
     domain = apply_mapping(root, mapping_profile)
 
+    # Always overlay structural domain fields so domain_json conforms to schema
+    # (custom mappings should not remove these required fields)
+    domain.setdefault("title", None)
+    domain.setdefault("sections", [])
+    domain.setdefault("metadata", {"root_element": etree.QName(root).localname})
+    # _mapping diagnostics are already set by apply_mapping when a profile is used
+
     # DITA map detection
     dita_map = _extract_dita_map(root)
 
