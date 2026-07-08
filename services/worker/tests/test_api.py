@@ -277,6 +277,121 @@ def test_allowed_actions_unknown_profile():
 
 
 # ---------------------------------------------------------------------------
+# Allowed-actions with block_type (new API)
+# ---------------------------------------------------------------------------
+
+
+def test_allowed_actions_block_type_doc():
+    """POST with block_type='doc' returns section etc for dita-topic."""
+    response = client.post(
+        "/api/v1/authoring/allowed-actions",
+        json={"profile_id": "dita-topic", "block_type": "doc"},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert "section" in data["allowed_add"]
+    assert "asset" in data["allowed_add"]
+
+
+def test_allowed_actions_block_type_section():
+    """POST with block_type='section' returns paragraph/table/image/link."""
+    response = client.post(
+        "/api/v1/authoring/allowed-actions",
+        json={"profile_id": "dita-topic", "block_type": "section"},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert "paragraph" in data["allowed_add"]
+    assert "table" in data["allowed_add"]
+    assert "image" in data["allowed_add"]
+    assert "link" in data["allowed_add"]
+
+
+def test_allowed_actions_block_type_paragraph():
+    """POST with block_type='paragraph' returns section children (sibling add)."""
+    response = client.post(
+        "/api/v1/authoring/allowed-actions",
+        json={"profile_id": "dita-topic", "block_type": "paragraph"},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    # paragraph has no allowed_children itself, so allowed_add bleeds from section
+    assert len(data["allowed_add"]) == 0
+
+
+def test_allowed_actions_block_type_paragraph_as_section():
+    """When parent is section, paragraph siblings should be allowed.
+    
+    This is the semantic the frontend uses: it sends block_type='section'
+    when the selected node is a paragraph, because it wants sibling add
+    actions.
+    """
+    response = client.post(
+        "/api/v1/authoring/allowed-actions",
+        json={"profile_id": "dita-topic", "block_type": "section"},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert "paragraph" in data["allowed_add"]
+    assert "table" in data["allowed_add"]
+
+
+def test_allowed_actions_block_type_topicref():
+    """POST with block_type='topicref' in dita-map returns topicref."""
+    response = client.post(
+        "/api/v1/authoring/allowed-actions",
+        json={"profile_id": "dita-map", "block_type": "topicref"},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert "topicref" in data["allowed_add"]
+
+
+def test_allowed_actions_block_type_asset():
+    """POST with block_type='asset' returns empty allowed_add."""
+    response = client.post(
+        "/api/v1/authoring/allowed-actions",
+        json={"profile_id": "dita-topic", "block_type": "asset"},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data["allowed_add"]) == 0
+
+
+def test_allowed_actions_block_type_reference():
+    """POST with block_type='reference' returns empty allowed_add."""
+    response = client.post(
+        "/api/v1/authoring/allowed-actions",
+        json={"profile_id": "dita-topic", "block_type": "reference"},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data["allowed_add"]) == 0
+
+
+def test_allowed_actions_block_type_topicref_can_delete():
+    """block_type='topicref' should allow delete."""
+    response = client.post(
+        "/api/v1/authoring/allowed-actions",
+        json={"profile_id": "dita-map", "block_type": "topicref"},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["can_delete"] is True
+
+
+def test_allowed_actions_block_type_doc_cannot_delete():
+    """block_type='doc' should not allow delete."""
+    response = client.post(
+        "/api/v1/authoring/allowed-actions",
+        json={"profile_id": "dita-topic", "block_type": "doc"},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["can_delete"] is False
+
+
+# ---------------------------------------------------------------------------
 # Profile-based validation
 # ---------------------------------------------------------------------------
 

@@ -208,16 +208,21 @@ async def get_profile_by_id(profile_id: str) -> dict:
 
 class AllowedActionsBody(BaseModel):
     profile_id: str
-    node_path: str
+    node_path: str = ""
+    block_type: str = ""
 
 
 @app.post("/api/v1/authoring/allowed-actions")
 async def allowed_actions(body: AllowedActionsBody) -> dict:
-    """Proxy: get allowed actions for a node path."""
+    """Proxy: get allowed actions for a node path or block type."""
     async with httpx.AsyncClient(timeout=30) as client:
         resp = await client.post(
             f"{WORKER_BASE_URL}/api/v1/authoring/allowed-actions",
-            json={"profile_id": body.profile_id, "node_path": body.node_path},
+            json={
+                "profile_id": body.profile_id,
+                "node_path": body.node_path,
+                "block_type": body.block_type,
+            },
         )
     if resp.status_code >= 400:
         raise HTTPException(status_code=resp.status_code, detail=resp.text)

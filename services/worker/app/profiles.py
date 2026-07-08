@@ -168,11 +168,22 @@ def get_profile(profile_id: str) -> dict[str, Any]:
     return dict(PROFILES[profile_id])
 
 
-def get_allowed_actions(profile_id: str, node_path: str) -> dict[str, Any]:
-    """Return allowed actions for a given node path in a profile.
+def get_allowed_actions(
+    profile_id: str,
+    node_path: str = "",
+    block_type: str = "",
+) -> dict[str, Any]:
+    """Return allowed actions for a given block type in a profile.
 
-    *node_path* is a dot-separated path like "doc", "doc.section",
-    "doc.section.paragraph", "doc.topicref", "doc.topicref.topicref".
+    If *block_type* is provided, it is used directly to look up
+    ``allowed_children``.  If only *node_path* is given (backward
+    compat), the block type is inferred from the last path segment.
+
+    Args:
+        profile_id:  The profile identifier.
+        node_path:   Dot-separated path like "sections.0" (legacy).
+        block_type:  Semantic block type like "section", "paragraph",
+                     "topicref", "doc".
 
     Returns a dict with:
     - allowed_add: list of block types that can be added as children
@@ -188,22 +199,20 @@ def get_allowed_actions(profile_id: str, node_path: str) -> dict[str, Any]:
     profile = PROFILES[profile_id]
     allowed_children = profile["allowed_children"]
 
-    # Determine the parent block type from the path
-    parts = node_path.split(".")
-    parent_type = parts[-1] if parts else "doc"
+    # Determine the parent block type (for allowed_add) and current
+    # block type (for attributes / can_delete).
+    parent_type = block_type if block_type else (
+        node_path.split(".")[-1] if node_path else "doc"
+    )
+    current_type = block_type if block_type else (
+        node_path.split(".")[-1] if node_path else "doc"
+    )
 
     allowed_add = list(allowed_children.get(parent_type, []))
-
-    # Determine the current block type (last part of path)
-    current_type = parts[-1] if len(parts) > 0 else "doc"
-
     allowed_attrs = list(ALLOWED_ATTRIBUTES.get(current_type, set()))
     required = list(REQUIRED_FIELDS.get(current_type, set()))
 
-    # Can delete if not at root
-    can_delete = current_type not in ("doc",) and parent_type != "doc"
-
-    # Can move up/down if not at root
+    can_delete = current_type not in ("doc",)
     can_move_up = can_delete
     can_move_down = can_delete
 

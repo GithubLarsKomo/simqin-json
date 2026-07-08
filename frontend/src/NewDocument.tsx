@@ -170,16 +170,24 @@ function blockType(path: string): string {
   return last;
 }
 
-/** Parent block type for add-actions — determines which parent node type
- *  the allowed-actions API should be called with. */
+/** Map a selected path to its semantic ``{ parentBlockType }`` for
+ *  allowed-actions lookups.
+ *
+ *  - doc         → parent is doc
+ *  - section     → parent is section (add section children)
+ *  - paragraph / table / image / link → parent is section (add siblings)
+ *  - topicref    → parent is topicref (add child topicref)
+ *  - asset / reference → parent is doc (unless profile overrides)
+ */
 function parentBlockTypeForAdd(path: string): string {
   if (path === 'doc') return 'doc';
   const bt = blockType(path);
-  // section, topicref are their own parent for "add child"
   if (bt === 'section') return 'section';
   if (bt === 'topicref') return 'topicref';
-  // everything inside a section belongs to the section parent
-  if (['paragraph', 'table', 'image', 'link'].includes(bt)) return 'section';
+  // paragraphs, tables, images, links inside a section → sibling add
+  if (['paragraph', 'table', 'image', 'link'].includes(bt) && path.includes('sections')) return 'section';
+  // assets, references → add to doc root
+  if (['asset', 'reference'].includes(bt)) return 'doc';
   return 'doc';
 }
 
@@ -352,10 +360,15 @@ export default function NewDocument({ onNavigateHome }: { onNavigateHome: () => 
   // Fetch allowed-actions on selection change
   useEffect(() => {
     if (!doc || !profile) return;
-    const nodePath = parentBlockTypeForAdd(selectedPath);
+    const bt = blockType(selectedPath);
+    const parentBt = parentBlockTypeForAdd(selectedPath);
     fetch(`${API_BASE}/api/v1/authoring/allowed-actions`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ profile_id: profile.id, node_path: nodePath }),
+      body: JSON.stringify({
+        profile_id: profile.id,
+        node_path: selectedPath,
+        block_type: parentBt,
+      }),
     }).then(r => r.ok ? r.json() : null).then(setActions).catch(() => {});
   }, [doc, profile, selectedPath]);
 
