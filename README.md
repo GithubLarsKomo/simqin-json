@@ -63,6 +63,77 @@ curl http://localhost:8080/api/v1/schemas/canonical
 curl http://localhost:8080/api/v1/schemas/domain
 ```
 
-## Hinweis
+## Phase 2 Capabilities
 
-Dieses Layout ist als belastbares Startprojekt gedacht. Für Produktion müssen Authentifizierung, Persistenz, Audit Logging, Mandantentrennung und Security-Hardening ergänzt werden.
+### DITA Map Support
+Erkennt `<map>`/`<bookmap>`-Root-Elemente und extrahiert rekursiv:
+- **TopicRefs** — `topicref`, `mapref`, `chapter`, `appendix`, `frontmatter`, `backmatter`
+- **Attribute** — `href`, `navtitle`, `keys`, `keyref`, `format`, `scope`, `processing-role`, `toc`
+- **Verschachtelung** — TopicRefs bleiben in ihrer Baumstruktur erhalten
+
+### Asset Extraction
+Extrahiert automatisch Bilder und grafische Elemente aus dem Dokument:
+- **Tags** — `image`, `fig`, `graphic`
+- **URI-Attribute** — `href`, `src`, `fileref`, `data`, `xlink:href`
+- **Metadaten** — `alt`, `title`, `id`, `format`, `scope`, `_source` (XPath-Pfad)
+- **Deduplizierung** — nach (URI normalisiert + Elementtyp)
+
+### Reference Extraction
+Extrahiert Querverweise und Links:
+- **Tags** — `xref`, `link`
+- **Attribute** — `href`, `format`, `scope`, `id`, `_source`
+- **Text** — Link-Text wird extrahiert
+
+### Verbesserte Tabellen
+Unterstützt mehrere Formate:
+- **DITA** — `<table>/<tgroup>/<thead>/<tbody>/<row>/<entry>`
+- **Simpletable** — `<simpletable>/<strow>/<stentry>`
+- **HTML** — `<table>/<tr>/<td>/<th>`
+- **Caption** — `<caption>` oder `<title>` innerhalb der Tabelle
+- **Scoping** — Tabellen erscheinen global und in der umgebenden Section
+
+### Mapping Diagnostics
+Bei Verwendung eines Mapping-Profils enthält `domain_json`:
+- `_mapping.profile` — Name des Profils
+- `_mapping.version` — Version
+- `_mapping.rule_count` — Anzahl der Regeln
+- `_mapping.warnings` — Warnungen (z. B. ungematchte XPath-Regeln)
+
+### Fehlerbehandlung
+- **Ungültiges Mapping-YAML** → HTTP 400 mit klarer Fehlermeldung
+- **Ungültiger XPath in Mapping-Regel** → Regel wird übersprungen, Warning wird erzeugt
+- **Kein stummer Fallback** — fehlerhaftes User-Mapping wird nicht durch Default ersetzt
+
+### JSON Schema Endpoints
+- `GET /api/v1/schemas/canonical` — Canonical JSON Schema (mit rekursivem `$defs/node`)
+- `GET /api/v1/schemas/domain` — Domain JSON Schema (mit `$defs` für asset, reference, table, topicref)
+
+## Entwicklung
+
+### Makefile
+
+```bash
+make test      # Tests ausführen
+make up        # Docker Compose starten
+make down      # Docker Compose stoppen
+make lint      # Python-Syntax-Prüfung
+```
+
+## Test Suite
+
+```bash
+cd services/worker && pytest tests/ -v
+# → 50 Tests, alle grün
+```
+
+Test-Abdeckung:
+- XML-Parsing (valid, invalid, empty)
+- DTD-Validierung (valid, invalid)
+- XXE-Sicherheit
+- Canonical JSON (attributes, text, namespaces)
+- Domain JSON (title, sections, custom mapping)
+- DITA Maps (topicrefs, navtitle, scope, format, keys, full types, processing-role, toc)
+- Asset/Reference Extraction (href, alt, fig, dedup, _source)
+- Mapping Validation (invalid YAML, missing rules, missing match, invalid type)
+- Table Extraction (DITA tgroup, simpletable)
+- Domain Schema Validation
