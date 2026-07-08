@@ -1,11 +1,20 @@
 from __future__ import annotations
 
 import os
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from pydantic import BaseModel
+
 from .parser import convert_xml
 from .mapper import MappingProfile, MappingValidationError
+from .authoring import AuthoringDoc, AuthoringValidationError
+from .templates import list_templates, create_document
+from .xml_writer import render_document_xml, render_document_json
+
+# ---------------------------------------------------------------------------
+# App
+# ---------------------------------------------------------------------------
 
 app = FastAPI(title="SIMQIN JSON Worker", version="0.1.0")
 
@@ -16,9 +25,37 @@ if os.path.isfile(_profile_path):
     _default_profile = MappingProfile.from_yaml(_profile_path)
 
 
+# ---------------------------------------------------------------------------
+# Pydantic models
+# ---------------------------------------------------------------------------
+
+
+class AuthoringRequest(BaseModel):
+    document: dict[str, Any]
+
+
+class AuthoringValidateRequest(BaseModel):
+    document: dict[str, Any]
+
+
+class ValidationResult(BaseModel):
+    valid: bool
+    errors: list[str]
+
+
+# ---------------------------------------------------------------------------
+# Health
+# ---------------------------------------------------------------------------
+
+
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok", "service": "worker"}
+
+
+# ---------------------------------------------------------------------------
+# Convert (existing)
+# ---------------------------------------------------------------------------
 
 
 @app.post("/api/v1/convert")
@@ -55,3 +92,48 @@ async def convert(
         dtd_bytes=dtd_bytes,
         mapping_profile=profile,
     )
+
+
+# ---------------------------------------------------------------------------
+# Authoring endpoints
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/v1/templates")
+def get_templates() -> list[dict]:
+    """Return all available authoring templates."""
+    return list_templates()
+
+
+@app.post("/api/v1/authoring/render-xml")
+def render_xml(req: AuthoringRequest) -> dict:
+    """Render an Authoring JSON document to XML bytes (base64-encoded)."""
+    import base64
+    try:
+        doc = AuthoringDoc.from_dict(req.document)
+        xml_bytes = render_document_xml(doc)
+        return {"xml_base64": base64.b64encode(xml_bytes).decode("utf-8")}
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/api/v1/authoring/render-json")
+def render_json(req: AuthoringRequest) -> dict:
+    """Render an Authoring JSON document to domain JSON."""
+    try:
+        doc = AuthoringDoc.from_dict(req.document)
+        domain_json = render_document_json(doc)
+        return {"domain_json": domain_json}
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/api/v1/authoring/validate")
+def validate_authoring(req: AuthoringValidateRequest) -> dict:
+    """Validate an Authoring JSON document and return errors."""
+    try:
+        doc = AuthoringDoc.from_dict(req.document)
+        errors = doc.validate()
+        return {"valid": len(errors) == 0, "errors": errors}
+    except Exception as exc:
+        return {"valid": False, "errors": [str(exc)]}

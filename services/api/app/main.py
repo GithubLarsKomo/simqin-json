@@ -7,6 +7,7 @@ from typing import Optional
 import httpx
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
 WORKER_BASE_URL = os.getenv("WORKER_BASE_URL", "http://localhost:8090")
 MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", "25"))
@@ -107,7 +108,64 @@ async def upload_document(
             detail = response.json().get("detail", response.text)
         except Exception:
             detail = response.text
-        # Return JSON with clean error detail
         raise HTTPException(status_code=response.status_code, detail=detail)
 
     return response.json()
+
+
+# ---------------------------------------------------------------------------
+# Authoring endpoints (proxy to worker)
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/v1/templates")
+async def get_templates() -> list[dict]:
+    """Proxy: list authoring templates from worker."""
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.get(f"{WORKER_BASE_URL}/api/v1/templates")
+    if resp.status_code >= 400:
+        raise HTTPException(status_code=resp.status_code, detail=resp.text)
+    return resp.json()
+
+
+class AuthoringJSONBody(BaseModel):
+    document: dict
+
+
+@app.post("/api/v1/authoring/render-xml")
+async def authoring_render_xml(body: AuthoringJSONBody) -> dict:
+    """Proxy: render authoring JSON to XML (base64)."""
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.post(
+            f"{WORKER_BASE_URL}/api/v1/authoring/render-xml",
+            json={"document": body.document},
+        )
+    if resp.status_code >= 400:
+        raise HTTPException(status_code=resp.status_code, detail=resp.text)
+    return resp.json()
+
+
+@app.post("/api/v1/authoring/render-json")
+async def authoring_render_json(body: AuthoringJSONBody) -> dict:
+    """Proxy: render authoring JSON to domain JSON."""
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.post(
+            f"{WORKER_BASE_URL}/api/v1/authoring/render-json",
+            json={"document": body.document},
+        )
+    if resp.status_code >= 400:
+        raise HTTPException(status_code=resp.status_code, detail=resp.text)
+    return resp.json()
+
+
+@app.post("/api/v1/authoring/validate")
+async def authoring_validate(body: AuthoringJSONBody) -> dict:
+    """Proxy: validate authoring JSON."""
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.post(
+            f"{WORKER_BASE_URL}/api/v1/authoring/validate",
+            json={"document": body.document},
+        )
+    if resp.status_code >= 400:
+        raise HTTPException(status_code=resp.status_code, detail=resp.text)
+    return resp.json()

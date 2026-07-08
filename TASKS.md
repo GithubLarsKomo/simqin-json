@@ -53,7 +53,27 @@
 - [x] Frontend: Assets/Referenzen/Schema-Tabs
 - [x] Frontend: YAML-Upload-Feld
 - [x] Frontend: Validierungsreport-Download (JSON + Text)
-- [x] 30 Tests (alle grün)
+- [x] Frontend: Mapping-Diagnostik-Tab + YAML-Textarea
+- [x] 51 Tests (alle grün)
+- [x] Invalid XPath → MappingValidationError → HTTP 400
+- [x] domain_json immer mit title/sections/assets/references/metadata
+- [x] JSON Schema Validation mit jsonschema Draft 2020-12
+- [x] Makefile robuster (Pfade, frontend-build)
+
+## ✅ Phase 3 — Structured Authoring (erledigt)
+
+- [x] Authoring JSON Modell (authoring.py)
+- [x] Templates: DITA Topic, SOP, DITA Map (templates.py)
+- [x] XML Writer (xml_writer.py) für DITA Topic + Map XML
+- [x] Worker-Endpoints: GET /api/v1/templates, POST /authoring/render-xml, /render-json, /validate
+- [x] API-Gateway-Proxies
+- [x] Frontend: "Neues Dokument"-Seite mit Template-Auswahl
+- [x] Frontend: Editor (Titel, Abschnitte, Absätze, Tabellen, Bilder, Links, TopicRefs)
+- [x] Frontend: Live-Vorschau (WYSIWYG, XML, JSON)
+- [x] Frontend: Export XML/JSON
+- [x] Frontend: Validierung (Titel, Heading, IDs)
+- [x] 73 Tests (alle grün)
+- [x] Roundtrip: Authoring JSON → XML → convert_xml → domain_json
 
 ## ⬜ Batch 6 — Production Readiness (offen)
 
