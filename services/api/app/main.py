@@ -128,6 +128,16 @@ async def get_templates() -> list[dict]:
     return resp.json()
 
 
+@app.get("/api/v1/templates/{template_id}")
+async def get_template_by_id(template_id: str) -> dict:
+    """Proxy: get full template JSON from worker."""
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.get(f"{WORKER_BASE_URL}/api/v1/templates/{template_id}")
+    if resp.status_code >= 400:
+        raise HTTPException(status_code=resp.status_code, detail=resp.text)
+    return resp.json()
+
+
 class AuthoringJSONBody(BaseModel):
     document: dict
 

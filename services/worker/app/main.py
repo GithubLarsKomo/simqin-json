@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from .parser import convert_xml
 from .mapper import MappingProfile, MappingValidationError
 from .authoring import AuthoringDoc, AuthoringValidationError
-from .templates import list_templates, create_document
+from .templates import list_templates, get_template, create_document
 from .xml_writer import render_document_xml, render_document_json
 
 # ---------------------------------------------------------------------------
@@ -103,6 +103,15 @@ async def convert(
 def get_templates() -> list[dict]:
     """Return all available authoring templates."""
     return list_templates()
+
+
+@app.get("/api/v1/templates/{template_id}")
+def get_template_by_id(template_id: str) -> dict:
+    """Return the full AuthoringDoc JSON for a given template."""
+    try:
+        return get_template(template_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
 
 
 @app.post("/api/v1/authoring/render-xml")

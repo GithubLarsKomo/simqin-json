@@ -55,6 +55,15 @@ def list_templates() -> list[dict]:
     ]
 
 
+def get_template(template_id: str) -> dict:
+    """Return the full template JSON (AuthoringDoc) for *template_id*.
+
+    Raises ``ValueError`` if *template_id* is unknown.
+    """
+    doc = create_document(template_id)
+    return doc.to_dict()
+
+
 def create_document(template_id: str) -> AuthoringDoc:
     """Create a new ``AuthoringDoc`` from the given template ID.
 

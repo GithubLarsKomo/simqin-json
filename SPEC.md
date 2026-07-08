@@ -64,6 +64,20 @@ In Phase 2 wurden folgende Erweiterungen realisiert:
 - **Verbesserte Tabellen** für DITA- und HTML-Formate
 - **JSON Schema Endpoints** zum Abruf der Schemas
 
+## 4.2 Phase 3 — Structured Authoring (abgeschlossen)
+
+In Phase 3 wurden folgende Erweiterungen realisiert:
+
+- **Authoring JSON Modell** als browser-edierbarer Dokumenten-Zwischenstand
+- **Templates** für DITA Topic, SOP, DITA Map mit Default-Inhalten
+- **REST-Endpoint** `GET /api/v1/templates/{template_id}` zum Abruf vollständiger Template-JSONs
+- **XML Writer** zur Generierung von DITA Topic XML (`.dita`) und DITA Map XML (`.ditamap`)
+- **Intelligenter Export**: DITA Maps werden als `.ditamap`, Topics als `.dita`, sonstige als `.xml` exportiert
+- **WYSIWYG-Editor** mit Live-Vorschau (Vorschau/XML/JSON-Tabs)
+- **Verschachtelte TopicRefs** im DITA Map Editor: rekursive Bearbeitung und Anzeige
+- **Rückkanal**: Authoring JSON → XML → convert_xml → Domain JSON (Roundtrip getestet)
+- **84 automatisierte Tests** (alle grün)
+
 ## 5. Architektur
 
 ```text

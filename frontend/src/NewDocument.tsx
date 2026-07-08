@@ -21,6 +21,48 @@ function dl(name: string, content: string) {
   URL.revokeObjectURL(url);
 }
 
+// --- Recursive topicref renderer for WYSIWYG ---
+function renderNestedTopicrefs(refs: TopicRef[]): React.ReactNode {
+  return <ul style={{paddingLeft:'1.5rem',margin:'4px 0'}}>
+    {refs.map(tr => <li key={tr.id}>{tr.navtitle||tr.href||'(leer)'}{tr.children.length>0 && renderNestedTopicrefs(tr.children)}</li>)}
+  </ul>;
+}
+
+// --- Recursive TopicRefEditor component ---
+function TopicRefEditor({ tr, path, setNestedTr, rmNestedTr, addChildTr }: {
+  tr: TopicRef; path: number[];
+  setNestedTr: (path: number[], k: string, v: string) => void;
+  rmNestedTr: (path: number[]) => void;
+  addChildTr: (path: number[]) => void;
+}) {
+  const [open, setOpen] = useState(true);
+  return (
+    <div className="authoring-section topicref-nested">
+      <div className="section-header">
+        <button className="btn-icon" onClick={() => setOpen(!open)} style={{fontSize:'0.8rem',padding:'2px 6px'}}>
+          <span className="icon">{open ? '\u25BC' : '\u25B6'}</span>
+        </button>
+        <input type="text" value={tr.navtitle} onChange={e => setNestedTr(path,'navtitle',e.target.value)} placeholder="Navtitle" className="input-section-heading" />
+        <button onClick={() => addChildTr(path)} className="btn-icon" title="Unter-TopicRef hinzufügen"><span className="icon">+</span></button>
+        <button onClick={() => rmNestedTr(path)} className="btn-icon btn-danger"><span className="icon">{'\u2716'}</span></button>
+      </div>
+      {open && <>
+        <div className="inline-fields">
+          <input type="text" value={tr.href} onChange={e => setNestedTr(path,'href',e.target.value)} placeholder="href" className="input-half" />
+          <input type="text" value={tr.keys} onChange={e => setNestedTr(path,'keys',e.target.value)} placeholder="keys" className="input-half" />
+        </div>
+        {tr.children.length > 0 && (
+          <div className="topicref-children">
+            {tr.children.map((child, ci) => (
+              <TopicRefEditor key={child.id||ci} tr={child} path={[...path, ci]} setNestedTr={setNestedTr} rmNestedTr={rmNestedTr} addChildTr={addChildTr} />
+            ))}
+          </div>
+        )}
+      </>}
+    </div>
+  );
+}
+
 export default function NewDocument({ onNavigateHome }: { onNavigateHome: () => void }) {
   const [templates, setTemplates] = useState<TemplateInfo[]>([]);
   const [tid, setTid] = useState('');
@@ -35,31 +77,17 @@ export default function NewDocument({ onNavigateHome }: { onNavigateHome: () => 
     fetch(`${API_BASE}/api/v1/templates`).then(r => r.json()).then(setTemplates).catch(e => setErr(String(e)));
   }, []);
 
-  const pick = useCallback((id: string) => {
+  const pick = useCallback(async (id: string) => {
     setTid(id); setVal(null); setXmlP(''); setJsonP(''); setErr(null);
-    const t = templates.find(x => x.id === id);
-    if (!t) return;
-    let d: AuthoringDoc;
-    if (t.id === 'dita-topic') {
-      d = { template: 'dita-topic', title: 'Neues Thema', id: 'new-topic',
-        sections: [{ heading: 'Einleitung', id: 'new-topic-intro', paragraphs: [{ text: '', id: 'p1' }], tables: [], images: [], links: [] }],
-        topicrefs: [], assets: [], references: [] };
-    } else if (t.id === 'sop') {
-      d = { template: 'sop', title: 'Standard Operating Procedure', id: 'new-sop',
-        sections: [
-          { heading: 'Zweck', id: 'sop-purpose', paragraphs: [{ text: '', id: 'p1' }], tables: [], images: [], links: [] },
-          { heading: 'Geltungsbereich', id: 'sop-scope', paragraphs: [{ text: '', id: 'p2' }], tables: [], images: [], links: [] },
-          { heading: 'Durchführung', id: 'sop-procedure', paragraphs: [{ text: '', id: 'p3' }], tables: [{ caption: 'Schritte', id: 't1', rows: [['Schritt', 'Beschreibung'], ['1', ''], ['2', '']] }], images: [], links: [] },
-        ], topicrefs: [], assets: [], references: [] };
-    } else if (t.id === 'dita-map') {
-      d = { template: 'dita-map', title: 'Neue DITA Map', id: 'new-map',
-        sections: [], topicrefs: [{ href: 'topic1.dita', navtitle: 'Topic 1', id: 'ref1', keys: '', children: [] }],
-        assets: [], references: [] };
-    } else {
-      d = { template: t.id, title: t.name, id: 'doc', sections: [], topicrefs: [], assets: [], references: [] };
+    try {
+      const r = await fetch(`${API_BASE}/api/v1/templates/${id}`);
+      if (!r.ok) { setErr(`Fehler beim Laden der Vorlage: ${r.status}`); return; }
+      const d: AuthoringDoc = await r.json();
+      setDoc(d);
+    } catch (ex: any) {
+      setErr(String(ex));
     }
-    setDoc(d);
-  }, [templates]);
+  }, []);
 
   const upd = useCallback((fn: (d: AuthoringDoc) => void) => {
     setDoc(prev => { if (!prev) return prev; const n = JSON.parse(JSON.stringify(prev)); fn(n); return n; });
@@ -96,9 +124,25 @@ export default function NewDocument({ onNavigateHome }: { onNavigateHome: () => 
   const addLnk = (si: number) => upd(d => { d.sections[si].links.push({ href: '', text: '', id: `l${Date.now()}` }); });
   const setLnk = (si: number, li: number, k: string, v: string) => upd(d => { (d.sections[si].links[li] as any)[k] = v; });
   const rmLnk = (si: number, li: number) => upd(d => { d.sections[si].links.splice(li, 1); });
+  // --- Recursive topicref helpers ---
   const addTr = () => upd(d => { d.topicrefs.push({ href: '', navtitle: '', id: `tr${d.topicrefs.length+1}`, keys: '', children: [] }); });
   const setTr = (i: number, k: string, v: string) => upd(d => { (d.topicrefs[i] as any)[k] = v; });
   const rmTr = (i: number) => upd(d => { d.topicrefs.splice(i, 1); });
+  const setNestedTr = (path: number[], k: string, v: string) => upd(d => {
+    let refs = d.topicrefs;
+    for (let j = 0; j < path.length - 1; j++) refs = refs[path[j]].children;
+    (refs[path[path.length-1]] as any)[k] = v;
+  });
+  const rmNestedTr = (path: number[]) => upd(d => {
+    let refs = d.topicrefs;
+    for (let j = 0; j < path.length - 1; j++) refs = refs[path[j]].children;
+    refs.splice(path[path.length-1], 1);
+  });
+  const addChildTr = (path: number[]) => upd(d => {
+    let refs = d.topicrefs;
+    for (const idx of path) refs = refs[idx].children;
+    refs.push({ href: '', navtitle: '', id: `tr${Date.now()}`, keys: '', children: [] });
+  });
   const addAs = () => upd(d => { d.assets.push({ type: 'image', href: '', alt: '' }); });
   const setAs = (i: number, k: string, v: string) => upd(d => { (d.assets[i] as any)[k] = v; });
   const rmAs = (i: number) => upd(d => { d.assets.splice(i, 1); });
@@ -109,7 +153,9 @@ export default function NewDocument({ onNavigateHome }: { onNavigateHome: () => 
     if (!r.ok) return;
     const data = await r.json();
     const b = Uint8Array.from(atob(data.xml_base64), c => c.charCodeAt(0));
-    dl((doc.title||'doc').replace(/[^a-zA-Z0-9]/g,'-')+'.xml', new TextDecoder('utf-8').decode(b));
+    const base = (doc.title||'doc').replace(/[^a-zA-Z0-9]/g,'-');
+    const ext = doc.template === 'dita-map' ? '.ditamap' : doc.template === 'dita-topic' ? '.dita' : '.xml';
+    dl(base + ext, new TextDecoder('utf-8').decode(b));
   };
   const expJson = () => { if (doc) dl((doc.title||'doc').replace(/[^a-zA-Z0-9]/g,'-')+'.json', JSON.stringify(doc, null, 2)); };
   const impJson = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -165,11 +211,7 @@ export default function NewDocument({ onNavigateHome }: { onNavigateHome: () => 
         </div>
         {doc.template==='dita-map' && <div className="card">
           <div className="section-header"><h2>TopicRefs</h2><button onClick={addTr} className="btn-icon"><span className="icon">+</span></button></div>
-          {doc.topicrefs.map((tr, i) => (<div key={tr.id||i} className="authoring-section">
-            <div className="section-header"><input type="text" value={tr.navtitle} onChange={e=>setTr(i,'navtitle',e.target.value)} placeholder="Navtitle" className="input-section-heading" />
-              <button onClick={()=>rmTr(i)} className="btn-icon btn-danger"><span className="icon">{'\u2716'}</span></button></div>
-            <div className="inline-fields"><input type="text" value={tr.href} onChange={e=>setTr(i,'href',e.target.value)} placeholder="href" className="input-half" />
-              <input type="text" value={tr.keys} onChange={e=>setTr(i,'keys',e.target.value)} placeholder="keys" className="input-half" /></div></div>))}
+          {doc.topicrefs.map((tr, i) => <TopicRefEditor key={tr.id||i} tr={tr} path={[i]} setNestedTr={setNestedTr} rmNestedTr={rmNestedTr} addChildTr={addChildTr} />)}
         </div>}
         <div className="card"><div className="section-header"><h2>Assets</h2><button onClick={addAs} className="btn-icon"><span className="icon">+</span></button></div>
           {doc.assets.map((a, i) => (<div key={i} className="inline-fields">
@@ -198,7 +240,7 @@ export default function NewDocument({ onNavigateHome }: { onNavigateHome: () => 
               {sec.images.map(img => <p key={img.id}>[Bild: {img.src||'(leer)'}]</p>)}
               {sec.links.map(lnk => <p key={lnk.id}>[Link: {lnk.text||'(leer)'} &rarr; {lnk.href}]</p>)}
             </div>)}
-            {doc.template==='dita-map'&&<div><h4>TopicRefs</h4><ul>{doc.topicrefs.map((tr,i)=><li key={i}>{tr.navtitle||tr.href||'(leer)'}</li>)}</ul></div>}
+            {doc.template==='dita-map'&&<div><h4>TopicRefs</h4>{renderNestedTopicrefs(doc.topicrefs)}</div>}
           </div>}
           {ptab==='xml' && <pre className="code-preview">{xmlP||'Generiere...'}</pre>}
           {ptab==='json' && <pre className="code-preview">{jsonP||'Generiere...'}</pre>}

@@ -8,7 +8,7 @@ from pathlib import Path
 from lxml import etree
 
 from app.authoring import AuthoringDoc, Section, Paragraph, TableBlock, ImageRef, LinkRef, TopicRef, _make_id
-from app.templates import list_templates, create_document
+from app.templates import list_templates, get_template, create_document
 from app.xml_writer import render_topic_xml, render_map_xml, render_document_xml, render_document_json
 
 HERE = Path(__file__).resolve().parent
@@ -55,6 +55,61 @@ def test_create_unknown_template():
         assert False, "Expected ValueError"
     except ValueError:
         pass
+
+
+# ---------------------------------------------------------------------------
+# get_template — full template JSON
+# ---------------------------------------------------------------------------
+
+def test_get_template_dita_topic():
+    tpl = get_template("dita-topic")
+    assert tpl["template"] == "dita-topic"
+    assert tpl["title"] == "Neues Thema"
+    assert "sections" in tpl
+    assert len(tpl["sections"]) >= 1
+    assert tpl["sections"][0]["heading"] == "Einleitung"
+    assert "topicrefs" in tpl
+    assert "assets" in tpl
+    assert "references" in tpl
+
+
+def test_get_template_sop():
+    tpl = get_template("sop")
+    assert tpl["template"] == "sop"
+    assert tpl["title"] == "Standard Operating Procedure"
+    assert len(tpl["sections"]) >= 4
+    # SOP has a table in the procedure section
+    tables = [t for s in tpl["sections"] for t in s.get("tables", [])]
+    assert len(tables) >= 1
+
+
+def test_get_template_dita_map():
+    tpl = get_template("dita-map")
+    assert tpl["template"] == "dita-map"
+    assert "Neue DITA Map" in tpl["title"]
+    assert len(tpl["topicrefs"]) >= 2
+    # Should have nested topicrefs
+    has_nested = any(len(tr.get("children", [])) > 0 for tr in tpl["topicrefs"])
+    assert has_nested, "DITA map template should contain nested topicrefs"
+
+
+def test_get_template_unknown():
+    try:
+        get_template("does-not-exist")
+        assert False, "Expected ValueError"
+    except ValueError:
+        pass
+
+
+def test_get_template_dita_map_default_topicrefs():
+    """DITA map template should produce topicrefs with expected defaults."""
+    tpl = get_template("dita-map")
+    for tr in tpl["topicrefs"]:
+        assert "href" in tr
+        assert "navtitle" in tr
+        assert "id" in tr
+        assert "children" in tr
+        assert isinstance(tr["children"], list)
 
 
 # ---------------------------------------------------------------------------

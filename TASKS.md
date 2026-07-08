@@ -65,14 +65,16 @@
 - [x] Authoring JSON Modell (authoring.py)
 - [x] Templates: DITA Topic, SOP, DITA Map (templates.py)
 - [x] XML Writer (xml_writer.py) für DITA Topic + Map XML
-- [x] Worker-Endpoints: GET /api/v1/templates, POST /authoring/render-xml, /render-json, /validate
-- [x] API-Gateway-Proxies
+- [x] Worker-Endpoints: GET /api/v1/templates, GET /api/v1/templates/{template_id}, POST /authoring/render-xml, /render-json, /validate
+- [x] API-Gateway-Proxies inkl. Template-by-ID
 - [x] Frontend: "Neues Dokument"-Seite mit Template-Auswahl
 - [x] Frontend: Editor (Titel, Abschnitte, Absätze, Tabellen, Bilder, Links, TopicRefs)
 - [x] Frontend: Live-Vorschau (WYSIWYG, XML, JSON)
-- [x] Frontend: Export XML/JSON
+- [x] Frontend: Export XML (.dita/.ditamap/.xml je nach Template)
 - [x] Frontend: Validierung (Titel, Heading, IDs)
-- [x] 73 Tests (alle grün)
+- [x] **Nested TopicRefs** im DITA Map Editor (rekursives UI + WYSIWYG)
+- [x] Template-Abruf vom Backend statt hardcodierter Templates im Frontend
+- [x] 84 Tests (alle grün)
 - [x] Roundtrip: Authoring JSON → XML → convert_xml → domain_json
 
 ## ⬜ Batch 6 — Production Readiness (offen)

@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from app.mapper import MappingProfile
+from app.templates import get_template
 
 HERE = Path(__file__).resolve().parent
 FIXTURES = HERE.parent.parent.parent / "shared" / "test-fixtures"
@@ -113,3 +114,59 @@ rules:
     data = response.json()
     assert data["ok"] is True
     assert data["domain_json"]["my_title"] == "Example SIMQIN Topic"
+
+
+# ---------------------------------------------------------------------------
+# Authoring template endpoints
+# ---------------------------------------------------------------------------
+
+
+def test_get_templates_list():
+    """GET /api/v1/templates returns all template summaries."""
+    response = client.get("/api/v1/templates")
+    assert response.status_code == 200
+    data = response.json()
+    assert isinstance(data, list)
+    ids = [t["id"] for t in data]
+    assert "dita-topic" in ids
+    assert "sop" in ids
+    assert "dita-map" in ids
+
+
+def test_get_template_by_id_dita_topic():
+    """GET /api/v1/templates/dita-topic returns full template JSON."""
+    response = client.get("/api/v1/templates/dita-topic")
+    assert response.status_code == 200
+    tpl = response.json()
+    assert tpl["template"] == "dita-topic"
+    assert tpl["title"] == "Neues Thema"
+    assert "sections" in tpl
+    assert len(tpl["sections"]) >= 1
+
+
+def test_get_template_by_id_sop():
+    """GET /api/v1/templates/sop returns full SOP template JSON."""
+    response = client.get("/api/v1/templates/sop")
+    assert response.status_code == 200
+    tpl = response.json()
+    assert tpl["template"] == "sop"
+    assert tpl["title"] == "Standard Operating Procedure"
+    assert len(tpl["sections"]) >= 4
+
+
+def test_get_template_by_id_dita_map():
+    """GET /api/v1/templates/dita-map returns full DITA map template JSON."""
+    response = client.get("/api/v1/templates/dita-map")
+    assert response.status_code == 200
+    tpl = response.json()
+    assert tpl["template"] == "dita-map"
+    assert len(tpl["topicrefs"]) >= 2
+    # Verify nested topicrefs
+    has_nested = any(len(tr.get("children", [])) > 0 for tr in tpl["topicrefs"])
+    assert has_nested
+
+
+def test_get_template_by_id_not_found():
+    """GET /api/v1/templates/nonexistent returns 404."""
+    response = client.get("/api/v1/templates/does-not-exist")
+    assert response.status_code == 404
