@@ -170,16 +170,16 @@ function blockType(path: string): string {
   return last;
 }
 
-/** Parent block type for add-actions */
+/** Parent block type for add-actions — determines which parent node type
+ *  the allowed-actions API should be called with. */
 function parentBlockTypeForAdd(path: string): string {
-  const p = path.split('.');
+  if (path === 'doc') return 'doc';
   const bt = blockType(path);
-  if (bt === 'section' || bt === 'topicref' || bt === 'doc') return bt === 'section' ? 'section' : bt;
-  // For children of sections, parent is section
-  if (['paragraph', 'table', 'image', 'link'].includes(bt)) {
-    if (p.includes('sections')) return 'section';
-  }
+  // section, topicref are their own parent for "add child"
+  if (bt === 'section') return 'section';
   if (bt === 'topicref') return 'topicref';
+  // everything inside a section belongs to the section parent
+  if (['paragraph', 'table', 'image', 'link'].includes(bt)) return 'section';
   return 'doc';
 }
 
@@ -215,20 +215,19 @@ function StructureTree({ doc, selectedPath, onSelect }: {
   const tc = (path: string, depth: number): React.ReactNode[] => {
     const kids: React.ReactNode[] = [];
     if (path === 'doc') {
-      kids.push(tn('doc', doc.title || '(Dokument)', true, depth));
       doc.sections.forEach((sec, i) => {
         const sp = `sections.${i}`;
-        kids.push(tn(sp, sec.heading || `Abschnitt ${i}`, true, 1));
+        kids.push(tn(sp, sec.heading || `Abschnitt ${i}`, true, depth));
         if (expanded.has(sp)) {
-          sec.paragraphs.forEach((_, pi) => kids.push(tn(`${sp}.paragraphs.${pi}`, `Absatz ${pi}`, false, 2)));
-          sec.tables.forEach((_, ti) => kids.push(tn(`${sp}.tables.${ti}`, `Tabelle ${ti}`, false, 2)));
-          sec.images.forEach((_, ii) => kids.push(tn(`${sp}.images.${ii}`, `Bild ${ii}`, false, 2)));
-          sec.links.forEach((_, li) => kids.push(tn(`${sp}.links.${li}`, `Link ${li}`, false, 2)));
+          sec.paragraphs.forEach((_, pi) => kids.push(tn(`${sp}.paragraphs.${pi}`, `Absatz ${pi}`, false, depth + 1)));
+          sec.tables.forEach((_, ti) => kids.push(tn(`${sp}.tables.${ti}`, `Tabelle ${ti}`, false, depth + 1)));
+          sec.images.forEach((_, ii) => kids.push(tn(`${sp}.images.${ii}`, `Bild ${ii}`, false, depth + 1)));
+          sec.links.forEach((_, li) => kids.push(tn(`${sp}.links.${li}`, `Link ${li}`, false, depth + 1)));
         }
       });
-      if (doc.template === 'dita-map') renderTRTree(doc.topicrefs, 'topicrefs', 1, kids);
-      doc.assets.forEach((_, i) => kids.push(tn(`assets.${i}`, `Asset ${i}`, false, 1)));
-      doc.references.forEach((_, i) => kids.push(tn(`references.${i}`, `Referenz ${i}`, false, 1)));
+      if (doc.template === 'dita-map') renderTRTree(doc.topicrefs, 'topicrefs', depth, kids);
+      doc.assets.forEach((_, i) => kids.push(tn(`assets.${i}`, `Asset ${i}`, false, depth)));
+      doc.references.forEach((_, i) => kids.push(tn(`references.${i}`, `Referenz ${i}`, false, depth)));
     }
     return kids;
   };
@@ -244,7 +243,8 @@ function StructureTree({ doc, selectedPath, onSelect }: {
   return (
     <div className="panel structure-tree">
       <div className="panel-header">Struktur</div>
-      {tc('doc', 0)}
+      {tn('doc', doc.title || '(Dokument)', true, 0)}
+      {expanded.has('doc') && tc('doc', 1)}
     </div>
   );
 }
@@ -296,7 +296,8 @@ function ActionBar({ actions, selectedPath, onAdd, onDelete, onMoveUp, onMoveDow
   actions: AllowedActions | null; selectedPath: string;
   onAdd: (type: string) => void; onDelete: () => void; onMoveUp: () => void; onMoveDown: () => void;
 }) {
-  if (!actions || selectedPath === 'doc') return null;
+  if (!actions) return null;
+  const isDoc = selectedPath === 'doc';
   return (
     <div className="action-bar">
       {actions.allowed_add.length > 0 && (
@@ -307,11 +308,11 @@ function ActionBar({ actions, selectedPath, onAdd, onDelete, onMoveUp, onMoveDow
           ))}
         </div>
       )}
-      <div className="action-group">
+      {!isDoc && <div className="action-group">
         {actions.can_move_up && <button className="btn-sm" onClick={onMoveUp} title="Nach oben">{'\u25B2'}</button>}
         {actions.can_move_down && <button className="btn-sm" onClick={onMoveDown} title="Nach unten">{'\u25BC'}</button>}
         {actions.can_delete && <button className="btn-sm btn-danger-sm" onClick={onDelete}>{'\u2716'}</button>}
-      </div>
+      </div>}
     </div>
   );
 }
@@ -351,10 +352,10 @@ export default function NewDocument({ onNavigateHome }: { onNavigateHome: () => 
   // Fetch allowed-actions on selection change
   useEffect(() => {
     if (!doc || !profile) return;
-    const pbt = parentBlockTypeForAdd(selectedPath);
+    const nodePath = parentBlockTypeForAdd(selectedPath);
     fetch(`${API_BASE}/api/v1/authoring/allowed-actions`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ profile_id: profile.id, node_path: pbt === 'doc' ? 'doc' : pbt }),
+      body: JSON.stringify({ profile_id: profile.id, node_path: nodePath }),
     }).then(r => r.ok ? r.json() : null).then(setActions).catch(() => {});
   }, [doc, profile, selectedPath]);
 
@@ -386,12 +387,14 @@ export default function NewDocument({ onNavigateHome }: { onNavigateHome: () => 
   const handleAdd = (type: string) => {
     withDoc(d => {
       const bt = blockType(selectedPath);
-      if (bt === 'section' || bt === 'doc') {
+      if (selectedPath === 'doc' || bt === 'doc') {
+        // Add to document root
         if (type === 'section') d.sections.push({ heading: '', id: `s${d.sections.length + 1}`, paragraphs: [{ text: '', id: 'p1' }], tables: [], images: [], links: [] });
         else if (type === 'asset') d.assets.push({ type: 'image', href: '', alt: '' });
         else if (type === 'reference') d.references.push({ type: 'xref', href: '', text: '' });
         else if (type === 'topicref') d.topicrefs.push({ href: '', navtitle: '', id: `tr${d.topicrefs.length + 1}`, keys: '', children: [] });
-      } else if (bt === 'paragraph') {
+      } else if (bt === 'section' || (['paragraph', 'table', 'image', 'link'].includes(bt) && selectedPath.includes('sections'))) {
+        // Find the parent section index from the path
         const m = selectedPath.match(/sections\.(\d+)/);
         if (m) {
           const si = parseInt(m[1], 10);
@@ -401,7 +404,7 @@ export default function NewDocument({ onNavigateHome }: { onNavigateHome: () => 
           else if (type === 'link') d.sections[si].links.push({ href: '', text: '', id: `l${Date.now()}` });
         }
       } else if (bt === 'topicref') {
-        // Navigate to add child
+        // Add child topicref to the selected topicref
         const parts = selectedPath.split('.');
         let refs: TopicRef[] = d.topicrefs;
         for (const p of parts) {
