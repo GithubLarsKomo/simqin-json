@@ -116,25 +116,43 @@ def _text_content(node: etree._Element) -> str:
 # DITA map extraction
 # ---------------------------------------------------------------------------
 
+DITA_MAP_TAGS = {"topicref", "mapref", "chapter", "appendix", "frontmatter", "backmatter"}
+
+
 def _extract_topicrefs_recursive(elem: etree._Element) -> list[dict[str, Any]]:
-    """Recursively extract topicref entries from a DITA map element."""
+    """Recursively extract topicref-like entries from a DITA map element."""
     refs: list[dict[str, Any]] = []
     for child in elem:
         try:
             local = etree.QName(child).localname.lower()
         except (ValueError, TypeError):
             continue
-        if local != "topicref":
+        if local not in DITA_MAP_TAGS:
             continue
-        entry: dict[str, Any] = {
-            "href": child.get("href") or child.get("href", ""),
-            "navtitle": child.get("navtitle", ""),
-            "scope": child.get("scope", "local"),
-            "format": child.get("format", "dita"),
-            "keys": child.get("keys", ""),
-        }
-        # Strip empties
-        entry = {k: v for k, v in entry.items() if v}
+        entry: dict[str, Any] = {}
+        # href-like attributes
+        for attr in ("href", "keys", "keyref", "format", "scope", "processing-role", "toc", "navtitle"):
+            val = child.get(attr)
+            if val:
+                # Deduce format if omitted on local references
+                if attr == "scope" and val == "external":
+                    pass
+                entry[attr] = val
+        # Ensure navtitle from @navtitle or <topicmeta>/<navtitle>
+        if "navtitle" not in entry:
+            nav = child.get("navtitle")
+            if nav:
+                entry["navtitle"] = nav
+            else:
+                # Try <topicmeta><navtitle>
+                for meta in child.iterfind(".//navtitle"):
+                    entry["navtitle"] = _text_content(meta)
+                    break
+        # Strip empties, ensure outer fields exist
+        if "scope" not in entry:
+            entry["scope"] = "local"
+        if "format" not in entry:
+            entry["format"] = "dita"
         # Recurse into nested topicrefs
         nested = _extract_topicrefs_recursive(child)
         if nested:
@@ -152,7 +170,6 @@ def _extract_dita_map(root: etree._Element) -> dict[str, Any] | None:
         "id": root.get("id", ""),
         "title": root.get("title", ""),
     }
-    # Try to find a <title> child
     for child in root:
         try:
             if etree.QName(child).localname.lower() == "title":
@@ -160,9 +177,7 @@ def _extract_dita_map(root: etree._Element) -> dict[str, Any] | None:
                 break
         except (ValueError, TypeError):
             continue
-    topicrefs = _extract_topicrefs_recursive(root)
-    if topicrefs:
-        result["topicrefs"] = topicrefs
+    result["topicrefs"] = _extract_topicrefs_recursive(root)
     return result
 
 
@@ -173,11 +188,50 @@ def _extract_dita_map(root: etree._Element) -> dict[str, Any] | None:
 ASSET_TAGS = {"image", "fig", "graphic"}
 REFERENCE_TAGS = {"xref", "link"}
 
+# Attributes that can carry a URI
+HREF_ATTRS = ("href", "src", "fileref", "data")
+
+
+def _extract_source_path(elem: etree._Element, root: etree._Element) -> str:
+    """Build an XPath-like path for *elem* within *root* skeleton."""
+    parts: list[str] = []
+    cur = elem
+    while cur is not root and cur.getparent() is not None:
+        try:
+            name = etree.QName(cur).localname
+        except (ValueError, TypeError):
+            name = "?"
+        siblings = [c for c in cur.getparent() if c.tag == cur.tag]
+        if len(siblings) > 1:
+            idx = siblings.index(cur) + 1
+            name = f"{name}[{idx}]"
+        parts.append(name)
+        cur = cur.getparent()
+    parts.reverse()
+    return "/" + "/".join(parts)
+
+
+def _resolve_href_any(elem: etree._Element) -> str:
+    """Return the first non-empty URI attribute or xlink:href."""
+    for attr in HREF_ATTRS:
+        val = elem.get(attr)
+        if val:
+            return val
+    for ns, val in elem.attrib.items():
+        if ns.endswith("href") or ns.endswith("}href"):
+            # e.g. {http://www.w3.org/1999/xlink}href
+            return val
+    return ""
+
 
 def _extract_assets(root: etree._Element) -> list[dict[str, Any]]:
-    """Extract image/figure assets from the document."""
+    """Extract image/figure assets from the document.
+
+    Supports href, src, fileref, data, xlink:href.
+    Deduplicates by (normalized URI, element type).
+    """
     assets: list[dict[str, Any]] = []
-    seen: set[str] = set()
+    seen: set[tuple[str, str]] = set()
     for elem in root.iter():
         try:
             local = etree.QName(elem).localname.lower()
@@ -185,31 +239,53 @@ def _extract_assets(root: etree._Element) -> list[dict[str, Any]]:
             continue
         if local not in ASSET_TAGS:
             continue
-        href = elem.get("href") or elem.get("href", "")
-        if not href or href in seen:
+        href = _resolve_href_any(elem)
+        if not href:
             continue
-        seen.add(href)
+        dedup_key = (href.lower(), local)
+        if dedup_key in seen:
+            continue
+        seen.add(dedup_key)
+
         asset: dict[str, Any] = {
             "type": local,
             "href": href,
         }
-        alt = elem.get("alt") or elem.get("alt", "")
+        # alt / title text
+        alt = elem.get("alt") or elem.get("title", "")
         if not alt:
-            # look for <alt> child or <image> <alt>
             for child in elem:
-                if etree.QName(child).localname.lower() == "alt":
+                try:
+                    cl = etree.QName(child).localname.lower()
+                except (ValueError, TypeError):
+                    continue
+                if cl == "alt":
                     alt = _text_content(child)
                     break
         if alt:
             asset["alt"] = alt
+        # id, format, scope
+        if elem.get("id"):
+            asset["id"] = elem.get("id")
+        if elem.get("format"):
+            asset["format"] = elem.get("format")
+        if elem.get("scope"):
+            asset["scope"] = elem.get("scope")
+        # Source path
+        asset["_source"] = _extract_source_path(elem, root)
+
         assets.append(asset)
     return assets
 
 
 def _extract_references(root: etree._Element) -> list[dict[str, Any]]:
-    """Extract cross-references and links from the document."""
+    """Extract cross-references and links from the document.
+
+    Deduplicates by (normalized URI, element type).
+    Preserves type, href, text, format, scope, id, _source.
+    """
     refs: list[dict[str, Any]] = []
-    seen: set[str] = set()
+    seen: set[tuple[str, str]] = set()
     for elem in root.iter():
         try:
             local = etree.QName(elem).localname.lower()
@@ -217,46 +293,29 @@ def _extract_references(root: etree._Element) -> list[dict[str, Any]]:
             continue
         if local not in REFERENCE_TAGS:
             continue
-        href = elem.get("href") or elem.get("href", "")
-        if not href or href in seen:
+        href = _resolve_href_any(elem)
+        if not href:
             continue
-        seen.add(href)
-        refs.append({
+        dedup_key = (href.lower(), local)
+        if dedup_key in seen:
+            continue
+        seen.add(dedup_key)
+
+        ref: dict[str, Any] = {
             "type": local,
             "href": href,
             "text": _text_content(elem),
-        })
+        }
+        if elem.get("format"):
+            ref["format"] = elem.get("format")
+        if elem.get("scope"):
+            ref["scope"] = elem.get("scope")
+        if elem.get("id"):
+            ref["id"] = elem.get("id")
+        ref["_source"] = _extract_source_path(elem, root)
+
+        refs.append(ref)
     return refs
-
-
-def _domain_json(root: etree._Element) -> dict[str, Any]:
-    title = None
-    sections: list[dict[str, Any]] = []
-
-    for elem in root.iter():
-        local = etree.QName(elem).localname.lower()
-        if local in {"title", "h1"} and title is None:
-            title = _text_content(elem)
-        if local in {"section", "sect", "chapter"}:
-            heading = None
-            for child in elem:
-                if etree.QName(child).localname.lower() in {"title", "heading", "head"}:
-                    heading = _text_content(child)
-                    break
-            sections.append({
-                "heading": heading,
-                "body": _text_content(elem),
-                "tables": [],
-                "figures": [],
-            })
-
-    return {
-        "title": title,
-        "sections": sections,
-        "metadata": {
-            "root_element": etree.QName(root).localname,
-        },
-    }
 
 
 def _validate_dtd(xml_bytes: bytes, dtd_bytes: bytes | None) -> tuple[bool, list[dict[str, Any]], str | None]:
@@ -343,7 +402,7 @@ def convert_xml(
     # DITA map detection
     dita_map = _extract_dita_map(root)
 
-    # Asset & reference extraction
+    # Asset & reference extraction (always present, even if empty)
     assets = _extract_assets(root)
     references = _extract_references(root)
 
@@ -360,10 +419,8 @@ def convert_xml(
     }
 
     # Enrich domain JSON with extracted data (non-destructive)
-    if assets:
-        domain.setdefault("assets", assets)
-    if references:
-        domain.setdefault("references", references)
+    domain["assets"] = assets
+    domain["references"] = references
     if dita_map is not None:
         domain["dita_map"] = dita_map
 

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE map PUBLIC "-//OASIS//DTD DITA Map//EN" "map.dtd">
+<map id="full-example" title="Full-featured DITA Map">
+  <title>Full-featured DITA Map</title>
+  <topicref href="topics/intro.dita" navtitle="Introduction" keys="intro" toc="yes"/>
+  <topicref href="topics/guide.dita" navtitle="User Guide" keys="guide" scope="local" format="dita" toc="yes">
+    <topicref href="topics/install.dita" navtitle="Installation" keys="install"/>
+    <topicref href="topics/config.dita" navtitle="Configuration" keys="config"/>
+  </topicref>
+  <topicref href="https://example.com/api-ref" navtitle="API Reference" scope="external" format="html" processing-role="resource-only"/>
+  <mapref href="submap.ditamap" navtitle="Sub Map"/>
+  <chapter href="chapter1.dita" navtitle="Chapter 1" keys="ch1"/>
+  <appendix href="appendix-a.dita" navtitle="Appendix A" keys="app-a"/>
+</map>

@@ -75,6 +75,18 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .schema-buttons { display: flex; gap: 8px; }
 
 /* ---------------------------------------------------------------------------
+   Mapping textarea
+   --------------------------------------------------------------------------- */
+
+.mapping-textarea { width: 100%; font-family: 'SF Mono', 'Fira Code', monospace; font-size: .85rem; padding: 8px; border: 1px solid #dde2e8; border-radius: 6px; resize: vertical; }
+
+/* ---------------------------------------------------------------------------
+   Mapping warnings
+   --------------------------------------------------------------------------- */
+
+.mapping-warning { color: #ca6f1e; margin-bottom: 4px; }
+
+/* ---------------------------------------------------------------------------
    Domain section (DITA map details)
    --------------------------------------------------------------------------- */
 

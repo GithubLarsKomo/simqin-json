@@ -3,9 +3,9 @@ from __future__ import annotations
 import os
 from typing import Optional
 
-from fastapi import FastAPI, File, UploadFile
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from .parser import convert_xml
-from .mapper import MappingProfile
+from .mapper import MappingProfile, MappingValidationError
 
 app = FastAPI(title="SIMQIN JSON Worker", version="0.1.0")
 
@@ -26,16 +26,25 @@ async def convert(
     file: UploadFile = File(...),
     dtd: UploadFile | None = File(None),
     mapping: UploadFile | None = File(None),
+    mapping_text: Optional[str] = None,
 ) -> dict:
     xml_bytes = await file.read()
     dtd_bytes = await dtd.read() if dtd else None
 
-    # Use uploaded mapping profile, else fall back to default
-    if mapping is not None:
-        mapping_bytes = await mapping.read()
+    # Determine mapping profile: textarea > file > default
+    if mapping_text and mapping_text.strip():
         try:
-            profile = MappingProfile.from_bytes(mapping_bytes)
-        except Exception:
+            profile = MappingProfile.from_bytes(mapping_text.encode("utf-8"))
+        except MappingValidationError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+    elif mapping is not None:
+        mapping_bytes = await mapping.read()
+        if mapping_bytes.strip():
+            try:
+                profile = MappingProfile.from_bytes(mapping_bytes)
+            except MappingValidationError as exc:
+                raise HTTPException(status_code=400, detail=str(exc))
+        else:
             profile = _default_profile
     else:
         profile = _default_profile

@@ -2,43 +2,90 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "SIMQIN Domain JSON",
   "type": "object",
+  "required": ["title", "sections", "assets", "references", "metadata"],
   "properties": {
-    "title": { "type": "string" },
+    "title": { "type": ["string", "null"] },
     "topic_id": { "type": "string" },
     "short_description": { "type": "string" },
     "sections": {
       "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "id": { "type": "string" },
-          "heading": { "type": "string" },
-          "body": { "type": "string" },
-          "tables": { "type": "array" },
-          "figures": { "type": "array" }
-        }
-      }
+      "items": { "$ref": "#/$defs/section" }
     },
     "assets": {
       "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "type": { "type": "string" },
-          "href": { "type": "string" },
-          "alt": { "type": "string" }
-        }
-      }
+      "items": { "$ref": "#/$defs/asset" }
     },
     "references": {
       "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "type": { "type": "string" },
-          "href": { "type": "string" },
-          "text": { "type": "string" }
-        }
+      "items": { "$ref": "#/$defs/reference" }
+    },
+    "dita_map": { "$ref": "#/$defs/dita_map" },
+    "metadata": { "type": "object" },
+    "_mapping": {
+      "type": "object",
+      "properties": {
+        "profile": { "type": "string" },
+        "version": { "type": "string" },
+        "rule_count": { "type": "integer" },
+        "warnings": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  },
+  "$defs": {
+    "section": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "heading": { "type": ["string", "null"] },
+        "body": { "type": "string" },
+        "tables": { "type": "array", "items": { "$ref": "#/$defs/table" } },
+        "figures": { "type": "array", "items": { "$ref": "#/$defs/figure" } }
+      }
+    },
+    "asset": {
+      "type": "object",
+      "required": ["type", "href"],
+      "properties": {
+        "type": { "type": "string" },
+        "href": { "type": "string" },
+        "alt": { "type": "string" },
+        "id": { "type": "string" },
+        "format": { "type": "string" },
+        "scope": { "type": "string" },
+        "_source": { "type": "string" }
+      }
+    },
+    "reference": {
+      "type": "object",
+      "required": ["type", "href", "text"],
+      "properties": {
+        "type": { "type": "string" },
+        "href": { "type": "string" },
+        "text": { "type": "string" },
+        "format": { "type": "string" },
+        "scope": { "type": "string" },
+        "id": { "type": "string" },
+        "_source": { "type": "string" }
+      }
+    },
+    "table": {
+      "type": "object",
+      "properties": {
+        "rows": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        },
+        "caption": { "type": "string" }
+      }
+    },
+    "figure": {
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "image": { "type": "string" }
       }
     },
     "dita_map": {
@@ -48,20 +95,26 @@
         "title": { "type": "string" },
         "topicrefs": {
           "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "href": { "type": "string" },
-              "navtitle": { "type": "string" },
-              "scope": { "type": "string" },
-              "format": { "type": "string" },
-              "keys": { "type": "string" },
-              "topicrefs": { "type": "array" }
-            }
-          }
+          "items": { "$ref": "#/$defs/topicref" }
         }
       }
     },
-    "metadata": { "type": "object" }
+    "topicref": {
+      "type": "object",
+      "properties": {
+        "href": { "type": "string" },
+        "navtitle": { "type": "string" },
+        "scope": { "type": "string" },
+        "format": { "type": "string" },
+        "keys": { "type": "string" },
+        "keyref": { "type": "string" },
+        "processing-role": { "type": "string" },
+        "toc": { "type": "string" },
+        "topicrefs": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/topicref" }
+        }
+      }
+    }
   }
 }

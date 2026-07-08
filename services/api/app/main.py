@@ -73,6 +73,7 @@ async def upload_document(
     file: UploadFile = File(...),
     dtd: Optional[UploadFile] = File(None),
     mapping: Optional[UploadFile] = File(None),
+    mapping_text: Optional[str] = None,
 ) -> dict:
     # Validate file size
     xml_bytes = await file.read()
@@ -90,10 +91,23 @@ async def upload_document(
         mapping_bytes = await mapping.read()
         files["mapping"] = (mapping.filename, mapping_bytes, "application/x-yaml")
 
+    data: dict[str, str] = {}
+    if mapping_text and mapping_text.strip():
+        data["mapping_text"] = mapping_text
+
     async with httpx.AsyncClient(timeout=60) as client:
-        response = await client.post(f"{WORKER_BASE_URL}/api/v1/convert", files=files)
+        response = await client.post(
+            f"{WORKER_BASE_URL}/api/v1/convert",
+            files=files,
+            data=data,
+        )
 
     if response.status_code >= 400:
-        raise HTTPException(status_code=response.status_code, detail=response.text)
+        try:
+            detail = response.json().get("detail", response.text)
+        except Exception:
+            detail = response.text
+        # Return JSON with clean error detail
+        raise HTTPException(status_code=response.status_code, detail=detail)
 
     return response.json()

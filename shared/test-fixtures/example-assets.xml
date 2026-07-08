@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="assets-demo">
+  <title>Asset and Reference Demo</title>
+  <body>
+    <p>This topic demonstrates various asset and reference elements.</p>
+    <image href="img/diagram.png" alt="System Diagram"/>
+    <image href="img/photo.jpg"/>
+    <image href="img/diagram.png"/>  <!-- duplicate, should be skipped -->
+    <fig id="architecture-fig">
+      <title>Architecture Overview</title>
+      <image href="img/architecture.svg" alt="Architecture Diagram"/>
+    </fig>
+    <p>
+      See <xref href="#topic-id">relevant section</xref> for details.
+      Refer to <xref href="external-guide.html" format="html" scope="external">Online Guide</xref>.
+      Also check <link href="related-topic.dita">Related Topic</link>.
+    </p>
+    <graphic href="img/chart.png"/>
+  </body>
+</topic>

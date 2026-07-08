@@ -50,7 +50,7 @@ type ConversionResult = {
   domain_json: Record<string, unknown>;
 };
 
-type TabId = 'canonical' | 'domain' | 'assets' | 'references' | 'validation' | 'schema';
+type TabId = 'canonical' | 'domain' | 'assets' | 'references' | 'mapping' | 'validation' | 'schema';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -197,11 +197,13 @@ function App() {
   const [xml, setXml] = useState<File | null>(null);
   const [dtd, setDtd] = useState<File | null>(null);
   const [mapping, setMapping] = useState<File | null>(null);
+  const [mappingText, setMappingText] = useState<string>('');
   const [result, setResult] = useState<ConversionResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<TabId>('canonical');
   const [schema, setSchema] = useState<Record<string, unknown> | null>(null);
+  const [schemaKind, setSchemaKind] = useState<'canonical' | 'domain' | null>(null);
   const [schemaError, setSchemaError] = useState<string | null>(null);
 
   async function submit(event: React.FormEvent) {
@@ -216,6 +218,7 @@ function App() {
     form.append('file', xml);
     if (dtd) form.append('dtd', dtd);
     if (mapping) form.append('mapping', mapping);
+    if (mappingText.trim()) form.append('mapping_text', mappingText);
     try {
       const res = await fetch(`${API_BASE}/api/v1/documents`, { method: 'POST', body: form });
       if (!res.ok) {
@@ -237,8 +240,8 @@ function App() {
   }
 
   async function loadSchema(kind: 'canonical' | 'domain') {
-    if (schema) return; // already loaded
     setSchemaError(null);
+    setSchemaKind(kind);
     try {
       const res = await fetch(`${API_BASE}/api/v1/schemas/${kind}`);
       if (!res.ok) throw new Error(await res.text());
@@ -250,9 +253,10 @@ function App() {
   }
 
   const domainData = result?.domain_json;
-  const assets = domainData?.assets as Record<string, unknown>[] | undefined;
-  const references = domainData?.references as Record<string, unknown>[] | undefined;
+  const assets = (domainData?.assets as Record<string, unknown>[] | undefined) ?? [];
+  const references = (domainData?.references as Record<string, unknown>[] | undefined) ?? [];
   const ditaMap = domainData?.dita_map as Record<string, unknown> | undefined;
+  const mappingMeta = domainData?._mapping as Record<string, unknown> | undefined;
 
   return (
     <main>
@@ -275,6 +279,16 @@ function App() {
           Mapping YAML (optional)
           <input type="file" accept=".yaml,.yml" onChange={e => setMapping(e.target.files?.[0] ?? null)} />
         </label>
+        <details className="domain-section">
+          <summary>Mapping YAML als Text (optional &mdash; \u00fcberschreibt Datei-Upload)</summary>
+          <textarea
+            rows={6}
+            placeholder="profile: custom&#10;version: 1.0.0&#10;rules:&#10;  - match: &quot;/topic/title&quot;&#10;    target: &quot;title&quot;&#10;    type: &quot;text&quot;"
+            value={mappingText}
+            onChange={e => setMappingText(e.target.value)}
+            className="mapping-textarea"
+          />
+        </details>
         <button disabled={!xml || busy}>
           {busy ? '\u23F3 Konvertiere\u2026' : 'Konvertieren'}
         </button>
@@ -316,14 +330,15 @@ function App() {
             <button className={`tab ${tab === 'domain' ? 'tab-active' : ''}`} onClick={() => setTab('domain')}>
               Domain JSON
             </button>
-            {assets && assets.length > 0 && (
-              <button className={`tab ${tab === 'assets' ? 'tab-active' : ''}`} onClick={() => setTab('assets')}>
-                Assets ({assets.length})
-              </button>
-            )}
-            {references && references.length > 0 && (
-              <button className={`tab ${tab === 'references' ? 'tab-active' : ''}`} onClick={() => setTab('references')}>
-                Referenzen ({references.length})
+            <button className={`tab ${tab === 'assets' ? 'tab-active' : ''}`} onClick={() => setTab('assets')}>
+              Assets ({assets.length})
+            </button>
+            <button className={`tab ${tab === 'references' ? 'tab-active' : ''}`} onClick={() => setTab('references')}>
+              Referenzen ({references.length})
+            </button>
+            {mappingMeta && (
+              <button className={`tab ${tab === 'mapping' ? 'tab-active' : ''}`} onClick={() => setTab('mapping')}>
+                Mapping
               </button>
             )}
             <button className={`tab ${tab === 'validation' ? 'tab-active' : ''}`} onClick={() => setTab('validation')}>
@@ -364,7 +379,7 @@ function App() {
                 <pre>{JSON.stringify(result.domain_json, null, 2)}</pre>
               </>
             )}
-            {tab === 'assets' && assets && (
+            {tab === 'assets' && (
               <>
                 <div className="tab-header">
                   <h2>Assets ({assets.length})</h2>
@@ -372,10 +387,10 @@ function App() {
                     {'\u2B07'} Download
                   </button>
                 </div>
-                <ListView items={assets} />
+                {assets.length > 0 ? <ListView items={assets} /> : <p className="validation-ok">{statusIcon(true)} Keine Assets (Bilder/Figures) gefunden.</p>}
               </>
             )}
-            {tab === 'references' && references && (
+            {tab === 'references' && (
               <>
                 <div className="tab-header">
                   <h2>Referenzen ({references.length})</h2>
@@ -383,7 +398,34 @@ function App() {
                     {'\u2B07'} Download
                   </button>
                 </div>
-                <ListView items={references} />
+                {references.length > 0 ? <ListView items={references} /> : <p className="validation-ok">{statusIcon(true)} Keine Referenzen (XRefs/Links) gefunden.</p>}
+              </>
+            )}
+            {tab === 'mapping' && mappingMeta && (
+              <>
+                <div className="tab-header">
+                  <h2>Mapping Diagnostik</h2>
+                </div>
+                <table className="validation-table">
+                  <tbody>
+                    <tr><td><strong>Profil</strong></td><td>{String(mappingMeta.profile ?? '')}</td></tr>
+                    <tr><td><strong>Version</strong></td><td>{String(mappingMeta.version ?? '')}</td></tr>
+                    <tr><td><strong>Regeln</strong></td><td>{String(mappingMeta.rule_count ?? '')}</td></tr>
+                  </tbody>
+                </table>
+                {Array.isArray(mappingMeta.warnings) && mappingMeta.warnings.length > 0 && (
+                  <>
+                    <h3>Warnings ({mappingMeta.warnings.length})</h3>
+                    <ul>
+                      {(mappingMeta.warnings as string[]).map((w, i) => (
+                        <li key={i} className="mapping-warning">{w}</li>
+                      ))}
+                    </ul>
+                  </>
+                )}
+                {(!Array.isArray(mappingMeta.warnings) || mappingMeta.warnings.length === 0) && (
+                  <p className="validation-ok">{statusIcon(true)} Keine Mapping-Warnings.</p>
+                )}
               </>
             )}
             {tab === 'validation' && (
@@ -405,15 +447,15 @@ function App() {
                 <div className="tab-header">
                   <h2>JSON Schema</h2>
                   <div className="schema-buttons">
-                    <button onClick={() => { setSchema(null); loadSchema('canonical'); }}>
+                    <button onClick={() => { setSchema(null); setSchemaKind('canonical'); loadSchema('canonical'); }}>
                       Canonical Schema laden
                     </button>
-                    <button onClick={() => { setSchema(null); loadSchema('domain'); }}>
+                    <button onClick={() => { setSchema(null); setSchemaKind('domain'); loadSchema('domain'); }}>
                       Domain Schema laden
                     </button>
                   </div>
                 </div>
-                {schema && (
+                {schema && schemaKind && (
                   <>
                     <button onClick={() => downloadJson('schema.json', schema)}>
                       {'\u2B07'} Download

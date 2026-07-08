@@ -16,7 +16,7 @@ Danach:
 
 ## Features
 
-- **XML Upload** mit optionalem DTD und YAML-Mapping-Profil
+- **XML Upload** mit optionalem DTD und YAML-Mapping-Profil (Datei oder Textarea)
 - **XXE-sicheres XML-Parsing** via lxml (`resolve_entities=false`)
 - **DTD-Validierung** mit Zeilen-/Spaltenangabe
 - **Canonical JSON** — verlustarme technische Abbildung des XML-Baums (Strukturbaum-Ansicht)
@@ -27,7 +27,7 @@ Danach:
 - **JSON Schema Endpoints** — Canonical und Domain Schema via API abrufbar
 - **Validierungsbericht** — tabellarisch, farbcodiert, als JSON/Text downloadbar
 - **React UI** mit Strukturbaum, Tabs (Canonical/Domain/Assets/Referenzen/Validierung/Schema)
-- **30 Snapshot-Tests** (pytest, alle grün)
+- **50 Snapshot-Tests** (pytest, alle grün)
 
 ## Projektstruktur
 

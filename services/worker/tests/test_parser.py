@@ -197,6 +197,255 @@ def test_dita_map_keys():
 
 
 # ---------------------------------------------------------------------------
+# DITA map with mapref, chapter, appendix, bookmap
+# ---------------------------------------------------------------------------
+
+def test_dita_map_full_types():
+    xml = _load_fixture("example-map.ditamap")
+    result = convert_xml(xml, "example-map.ditamap")
+    topicrefs = result["domain_json"]["dita_map"]["topicrefs"]
+    # topicref, mapref, chapter, appendix
+    types_found = {r.get("format", "dita"): r for r in topicrefs}
+    assert any("submap" in str(r) for r in topicrefs)  # mapref
+    assert any("chapter" in str(r) or "Chapter" in str(r) for r in topicrefs)
+    assert any("appendix" in str(r) or "Appendix" in str(r) for r in topicrefs)
+
+
+def test_dita_map_processing_role():
+    xml = _load_fixture("example-map.ditamap")
+    result = convert_xml(xml, "example-map.ditamap")
+    topicrefs = result["domain_json"]["dita_map"]["topicrefs"]
+    for r in topicrefs:
+        if r.get("processing-role") == "resource-only":
+            break
+    else:
+        assert False, "No resource-only topicref found"
+
+
+def test_dita_map_toc():
+    xml = _load_fixture("example-map.ditamap")
+    result = convert_xml(xml, "example-map.ditamap")
+    topicrefs = result["domain_json"]["dita_map"]["topicrefs"]
+    assert any(r.get("toc") == "yes" for r in topicrefs)
+
+
+# ---------------------------------------------------------------------------
+# Asset extraction
+# ---------------------------------------------------------------------------
+
+def test_asset_extraction_href():
+    xml = _load_fixture("example-assets.xml")
+    result = convert_xml(xml, "example-assets.xml")
+    assets = result["domain_json"]["assets"]
+    assert len(assets) >= 3
+    hrefs = [a["href"] for a in assets]
+    assert "img/diagram.png" in hrefs
+    assert "img/photo.jpg" in hrefs
+    assert "img/architecture.svg" in hrefs
+
+
+def test_asset_extraction_alt_text():
+    xml = _load_fixture("example-assets.xml")
+    result = convert_xml(xml, "example-assets.xml")
+    for a in result["domain_json"]["assets"]:
+        if a["href"] == "img/diagram.png":
+            assert a.get("alt") == "System Diagram"
+            return
+    assert False, "Expected asset with alt text"
+
+
+def test_asset_extraction_fig():
+    xml = _load_fixture("example-assets.xml")
+    result = convert_xml(xml, "example-assets.xml")
+    assets = result["domain_json"]["assets"]
+    image_assets = [a for a in assets if a["type"] == "image"]
+    assert len(image_assets) >= 1
+
+
+def test_asset_extraction_dedup():
+    """Duplicate assets (same href + same type) should be skipped."""
+    xml = _load_fixture("example-assets.xml")
+    result = convert_xml(xml, "example-assets.xml")
+    assets = result["domain_json"]["assets"]
+    diagram = [a for a in assets if a["href"] == "img/diagram.png"]
+    assert len(diagram) == 1  # deduplicated
+
+
+# ---------------------------------------------------------------------------
+# Reference extraction
+# ---------------------------------------------------------------------------
+
+def test_reference_extraction_xref():
+    xml = _load_fixture("example-assets.xml")
+    result = convert_xml(xml, "example-assets.xml")
+    refs = result["domain_json"]["references"]
+    assert len(refs) >= 2
+    xrefs = [r for r in refs if r["type"] == "xref"]
+    assert len(xrefs) >= 1
+    assert any("external-guide" in r.get("href", "") for r in xrefs)
+
+
+def test_reference_extraction_link():
+    xml = _load_fixture("example-assets.xml")
+    result = convert_xml(xml, "example-assets.xml")
+    refs = result["domain_json"]["references"]
+    links = [r for r in refs if r["type"] == "link"]
+    assert len(links) >= 1
+
+
+# ---------------------------------------------------------------------------
+# Mapping validation: invalid YAML
+# ---------------------------------------------------------------------------
+
+def test_mapping_validation_invalid_yaml():
+    """Invalid mapping YAML should raise an exception."""
+    from app.mapper import MappingProfile, MappingValidationError
+
+    bad_yaml = b"not: valid: yaml: [[["
+    try:
+        MappingProfile.from_bytes(bad_yaml)
+        assert False, "Expected exception"
+    except (MappingValidationError, Exception):
+        pass
+
+
+def test_mapping_validation_missing_rules():
+    """Mapping YAML without rules should raise MappingValidationError."""
+    from app.mapper import MappingProfile, MappingValidationError
+
+    try:
+        MappingProfile.from_bytes(b"profile: test\nversion: 1.0.0\n")
+        assert False, "Expected MappingValidationError"
+    except MappingValidationError:
+        pass
+
+
+def test_mapping_validation_missing_match():
+    """A rule without 'match' should raise MappingValidationError."""
+    from app.mapper import MappingProfile, MappingValidationError
+
+    try:
+        MappingProfile.from_bytes(b"rules:\n  - target: x\n    type: text\n")
+        assert False, "Expected MappingValidationError"
+    except MappingValidationError:
+        pass
+
+
+def test_mapping_validation_invalid_type():
+    """A rule with invalid 'type' should raise MappingValidationError."""
+    from app.mapper import MappingProfile, MappingValidationError
+
+    try:
+        MappingProfile.from_bytes(b"rules:\n  - match: '/a'\n    target: x\n    type: unknown\n")
+        assert False, "Expected MappingValidationError"
+    except MappingValidationError:
+        pass
+
+
+# ---------------------------------------------------------------------------
+# DITA table extraction
+# ---------------------------------------------------------------------------
+
+DITA_TABLE_XML = b"""<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="table-test">
+  <title>Table Test</title>
+  <body>
+    <section id="tables-section">
+      <title>Tables Section</title>
+      <table>
+        <title>Sample Table</title>
+        <tgroup cols="2">
+          <thead>
+            <row><entry>Name</entry><entry>Value</entry></row>
+          </thead>
+          <tbody>
+            <row><entry>Alpha</entry><entry>1</entry></row>
+            <row><entry>Beta</entry><entry>2</entry></row>
+          </tbody>
+        </tgroup>
+      </table>
+      <simpletable>
+        <sthead>
+          <stentry>Key</stentry><stentry>Val</stentry>
+        </sthead>
+        <strow>
+          <stentry>A</stentry><stentry>10</stentry>
+        </strow>
+      </simpletable>
+    </section>
+  </body>
+</topic>"""
+
+
+def test_dita_table_extraction():
+    result = convert_xml(DITA_TABLE_XML, "table-test.xml")
+    sections = result["domain_json"]["sections"]
+    tables_found = 0
+    for sec in sections:
+        if "tables" in sec:
+            for tbl in sec["tables"]:
+                if "Sample Table" in tbl.get("caption", ""):
+                    tables_found += 1
+                    assert len(tbl["rows"]) >= 2
+    assert tables_found >= 1, "DITA table with caption not found in section tables"
+
+
+def test_simpletable_extraction():
+    result = convert_xml(DITA_TABLE_XML, "table-test.xml")
+    sections = result["domain_json"]["sections"]
+    total_tables = sum(
+        len(sec.get("tables", [])) for sec in sections
+    )
+    assert total_tables >= 2, f"Expected >=2 tables, got {total_tables}"
+
+
+# ---------------------------------------------------------------------------
+# Domain schema validation test
+# ---------------------------------------------------------------------------
+
+def test_domain_json_matches_schema():
+    """Produced domain_json should validate against the domain schema."""
+    import json
+    schema_path = HERE.parent.parent.parent / "shared" / "schemas" / "domain-json.schema.json"
+    with open(schema_path, "r") as fh:
+        schema = json.load(fh)
+
+    xml = _load_fixture("example-topic.xml")
+    result = convert_xml(xml, "example-topic.xml")
+    domain = result["domain_json"]
+
+    # Lightweight structural validation
+    assert "title" in domain
+    assert "sections" in domain
+    assert "assets" in domain
+    assert isinstance(domain["assets"], list)
+    assert "references" in domain
+    assert isinstance(domain["references"], list)
+    for sec in domain["sections"]:
+        assert "heading" in sec
+        assert "body" in sec
+
+
+# ---------------------------------------------------------------------------
+# Assets fixture includes references, format, scope
+# ---------------------------------------------------------------------------
+
+def test_asset_has_source_path():
+    xml = _load_fixture("example-assets.xml")
+    result = convert_xml(xml, "example-assets.xml")
+    for a in result["domain_json"]["assets"]:
+        assert "_source" in a, f"Asset missing _source path: {a}"
+
+
+def test_reference_has_source_path():
+    xml = _load_fixture("example-assets.xml")
+    result = convert_xml(xml, "example-assets.xml")
+    for r in result["domain_json"]["references"]:
+        assert "_source" in r, f"Reference missing _source path: {r}"
+
+
+# ---------------------------------------------------------------------------
 # Schema validation
 # ---------------------------------------------------------------------------
 

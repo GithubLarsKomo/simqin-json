@@ -122,15 +122,25 @@ def test_empty_profile():
     root = _parse_xml("example-topic.xml")
     profile = MappingProfile("empty", "0.0.0", [])
     domain = apply_mapping(root, profile)
-    assert domain == {}  # no rules → empty result
+    # _mapping metadata is always present; no user keys otherwise
+    assert "title" not in domain
+    assert domain.get("_mapping", {}).get("profile") == "empty"
+    assert domain["_mapping"]["rule_count"] == 0
 
 
-def test_unknown_xpath():
-    """A rule with an invalid XPath should be silently skipped."""
-    root = _parse_xml("example-topic.xml")
-    profile = MappingProfile("bad", "0.0.0", [MappingRule("!!!invalid", "x", "text")])
-    domain = apply_mapping(root, profile)
-    assert domain == {}
+def test_invalid_xpath_in_profile():
+    """An invalid XPath in a profile should produce a warning, not crash."""
+    yaml_bytes = b"""
+profile: badxpath
+version: 1.0.0
+rules:
+  - match: "!!!invalid"
+    target: "x"
+    type: "text"
+"""
+    profile = MappingProfile.from_bytes(yaml_bytes)
+    assert len(profile.rules) == 0  # rule was skipped
+    assert any("invalid" in w.lower() for w in profile.warnings)
 
 
 def test_no_match():
@@ -138,3 +148,37 @@ def test_no_match():
     profile = MappingProfile("nomatch", "0.0.0", [MappingRule("/nonexistent", "x", "text")])
     domain = apply_mapping(root, profile)
     assert "x" not in domain
+    # Should have a warning about 0 matches
+    warnings = domain.get("_mapping", {}).get("warnings", [])
+    assert any("matched 0" in w for w in warnings)
+
+
+def test_mapping_warning_on_zero_matches():
+    """A rule that matches nothing should produce a non-fatal warning."""
+    root = _parse_xml("example-topic.xml")
+    yaml_bytes = b"""
+profile: warn-test
+version: 1.0.0
+rules:
+  - match: "/topic/nonexistent"
+    target: "ghost"
+    type: "text"
+"""
+    profile = MappingProfile.from_bytes(yaml_bytes)
+    domain = apply_mapping(root, profile)
+    assert "ghost" not in domain
+    warnings = domain.get("_mapping", {}).get("warnings", [])
+    assert len(warnings) > 0
+    assert any("matched 0" in w for w in warnings)
+
+
+def test_mapping_metadata_present():
+    """domain_json should include _mapping when a profile is used."""
+    root = _parse_xml("example-topic.xml")
+    profile = MappingProfile.from_yaml(MappingProfile.default_profile_path())
+    domain = apply_mapping(root, profile)
+    assert "_mapping" in domain
+    meta = domain["_mapping"]
+    assert meta["profile"] == "simqin-default"
+    assert meta["version"] == "0.2.0"
+    assert meta["rule_count"] > 0
