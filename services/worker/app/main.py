@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from typing import Optional
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from .parser import convert_xml
 from .mapper import MappingProfile, MappingValidationError
 
@@ -26,7 +26,7 @@ async def convert(
     file: UploadFile = File(...),
     dtd: UploadFile | None = File(None),
     mapping: UploadFile | None = File(None),
-    mapping_text: Optional[str] = None,
+    mapping_text: Optional[str] = Form(None),
 ) -> dict:
     xml_bytes = await file.read()
     dtd_bytes = await dtd.read() if dtd else None
@@ -45,7 +45,7 @@ async def convert(
             except MappingValidationError as exc:
                 raise HTTPException(status_code=400, detail=str(exc))
         else:
-            profile = _default_profile
+            raise HTTPException(status_code=400, detail="Empty mapping YAML file")
     else:
         profile = _default_profile
 

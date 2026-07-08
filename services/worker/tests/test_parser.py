@@ -301,15 +301,23 @@ def test_reference_extraction_link():
 # ---------------------------------------------------------------------------
 
 def test_mapping_validation_invalid_yaml():
-    """Invalid mapping YAML should raise an exception."""
+    """Invalid mapping YAML MUST raise MappingValidationError specifically."""
     from app.mapper import MappingProfile, MappingValidationError
 
-    bad_yaml = b"not: valid: yaml: [[["
-    try:
-        MappingProfile.from_bytes(bad_yaml)
-        assert False, "Expected exception"
-    except (MappingValidationError, Exception):
-        pass
+    # Bogus YAML syntax
+    with pytest.raises(MappingValidationError) as excinfo:
+        MappingProfile.from_bytes(b"not: valid: yaml: [[[")
+    assert "YAML" in str(excinfo.value)
+
+    # Null / empty
+    with pytest.raises(MappingValidationError) as excinfo:
+        MappingProfile.from_bytes(b"")
+    assert "Empty" in str(excinfo.value)
+
+    # Just a scalar (not a mapping)
+    with pytest.raises(MappingValidationError) as excinfo:
+        MappingProfile.from_bytes(b"just a string")
+    assert "Root value" in str(excinfo.value) or "YAML" in str(excinfo.value)
 
 
 def test_mapping_validation_missing_rules():

@@ -127,19 +127,31 @@ class MappingProfile:
     def from_yaml(cls, path: str) -> "MappingProfile":
         """Load and parse a YAML mapping profile from *path*.
 
-        Raises ``MappingValidationError`` for structural issues.
+        Raises ``MappingValidationError`` for structural issues
+        or invalid YAML syntax.
         """
-        with open(path, "r", encoding="utf-8") as fh:
-            raw = yaml.safe_load(fh)
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                raw = yaml.safe_load(fh)
+        except yaml.YAMLError as exc:
+            raise MappingValidationError(f"Invalid YAML syntax in {path}: {exc}")
+        if raw is None:
+            raise MappingValidationError(f"Empty YAML file: {path}")
         return cls._build(raw)
 
     @classmethod
     def from_bytes(cls, data: bytes) -> "MappingProfile":
         """Load a YAML mapping profile from *data* bytes.
 
-        Raises ``MappingValidationError`` for structural issues.
+        Raises ``MappingValidationError`` for structural issues
+        or invalid YAML syntax.
         """
-        raw = yaml.safe_load(data)
+        try:
+            raw = yaml.safe_load(data)
+        except yaml.YAMLError as exc:
+            raise MappingValidationError(f"Invalid YAML syntax: {exc}")
+        if raw is None:
+            raise MappingValidationError("Empty YAML data")
         return cls._build(raw)
 
     @classmethod
