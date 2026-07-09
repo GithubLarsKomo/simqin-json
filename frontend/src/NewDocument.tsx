@@ -177,7 +177,7 @@ function blockType(path: string): string {
  *  - section     → parent is section (add section children)
  *  - paragraph / table / image / link → parent is section (add siblings)
  *  - topicref    → parent is topicref (add child topicref)
- *  - asset / reference → parent is doc (unless profile overrides)
+ *  - asset / reference → parent is the block type itself (no adds)
  */
 function parentBlockTypeForAdd(path: string): string {
   if (path === 'doc') return 'doc';
@@ -186,8 +186,8 @@ function parentBlockTypeForAdd(path: string): string {
   if (bt === 'topicref') return 'topicref';
   // paragraphs, tables, images, links inside a section → sibling add
   if (['paragraph', 'table', 'image', 'link'].includes(bt) && path.includes('sections')) return 'section';
-  // assets, references → add to doc root
-  if (['asset', 'reference'].includes(bt)) return 'doc';
+  // assets, references → no add unless profile overrides (use own type)
+  if (['asset', 'reference'].includes(bt)) return bt;
   return 'doc';
 }
 
@@ -361,13 +361,14 @@ export default function NewDocument({ onNavigateHome }: { onNavigateHome: () => 
   useEffect(() => {
     if (!doc || !profile) return;
     const bt = blockType(selectedPath);
-    const parentBt = parentBlockTypeForAdd(selectedPath);
+    const addCtx = parentBlockTypeForAdd(selectedPath);
     fetch(`${API_BASE}/api/v1/authoring/allowed-actions`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         profile_id: profile.id,
-        node_path: selectedPath,
-        block_type: parentBt,
+        selected_path: selectedPath,
+        block_type: bt,
+        add_context_type: addCtx,
       }),
     }).then(r => r.ok ? r.json() : null).then(setActions).catch(() => {});
   }, [doc, profile, selectedPath]);

@@ -172,18 +172,26 @@ def get_allowed_actions(
     profile_id: str,
     node_path: str = "",
     block_type: str = "",
+    add_context_type: str = "",
+    selected_path: str = "",
 ) -> dict[str, Any]:
     """Return allowed actions for a given block type in a profile.
 
-    If *block_type* is provided, it is used directly to look up
-    ``allowed_children``.  If only *node_path* is given (backward
-    compat), the block type is inferred from the last path segment.
+    ``add_context_type`` determines which ``allowed_children`` key is
+    used for the ``allowed_add`` list.  ``block_type`` determines
+    attributes, required fields, and delete/move permissions.
+
+    When ``add_context_type`` and/or ``block_type`` are empty, the
+    legacy ``node_path`` is parsed as a fallback.
 
     Args:
-        profile_id:  The profile identifier.
-        node_path:   Dot-separated path like "sections.0" (legacy).
-        block_type:  Semantic block type like "section", "paragraph",
-                     "topicref", "doc".
+        profile_id:       The profile identifier.
+        node_path:        Legacy dot-separated path (e.g. "sections.0").
+        block_type:       Semantic type of the *selected* node
+                          (e.g. "paragraph", "table", "section").
+        add_context_type: Semantic type of the *parent* context for
+                          add actions (e.g. "doc", "section", "topicref").
+        selected_path:    The full selected path (informational).
 
     Returns a dict with:
     - allowed_add: list of block types that can be added as children
@@ -199,20 +207,23 @@ def get_allowed_actions(
     profile = PROFILES[profile_id]
     allowed_children = profile["allowed_children"]
 
-    # Determine the parent block type (for allowed_add) and current
-    # block type (for attributes / can_delete).
-    parent_type = block_type if block_type else (
+    # --- Resolve add-context type ---
+    ctx = add_context_type
+    if not ctx:
+        # fallback: use block_type, then node_path
+        ctx = block_type if block_type else (
+            node_path.split(".")[-1] if node_path else "doc"
+        )
+    allowed_add = list(allowed_children.get(ctx, []))
+
+    # --- Resolve current (selected) block type ---
+    cur = block_type if block_type else (
         node_path.split(".")[-1] if node_path else "doc"
     )
-    current_type = block_type if block_type else (
-        node_path.split(".")[-1] if node_path else "doc"
-    )
+    allowed_attrs = list(ALLOWED_ATTRIBUTES.get(cur, set()))
+    required = list(REQUIRED_FIELDS.get(cur, set()))
 
-    allowed_add = list(allowed_children.get(parent_type, []))
-    allowed_attrs = list(ALLOWED_ATTRIBUTES.get(current_type, set()))
-    required = list(REQUIRED_FIELDS.get(current_type, set()))
-
-    can_delete = current_type not in ("doc",)
+    can_delete = cur not in ("doc",)
     can_move_up = can_delete
     can_move_down = can_delete
 

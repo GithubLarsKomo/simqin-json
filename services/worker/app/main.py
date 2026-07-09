@@ -153,24 +153,28 @@ class AllowedActionsRequest(BaseModel):
     profile_id: str
     node_path: str = ""
     block_type: str = ""
+    add_context_type: str = ""
+    selected_path: str = ""
 
 
 @app.post("/api/v1/authoring/allowed-actions")
 def allowed_actions(req: AllowedActionsRequest) -> dict:
     """Return allowed actions for a node path or block type within a profile.
 
-    The caller may supply either:
-    - ``node_path`` (legacy dot-separated path), or
-    - ``block_type`` (semantic type like ``"section"``, ``"paragraph"``).
+    The caller should supply:
+    - ``profile_id``
+    - ``block_type`` — the semantic type of the selected node
+    - ``add_context_type`` — the semantic parent type for add actions
 
-    When both are provided, ``block_type`` takes precedence for parent
-    lookups.
+    Legacy ``node_path`` is still accepted for backward compatibility.
     """
     try:
         return get_allowed_actions(
             req.profile_id,
             node_path=req.node_path,
             block_type=req.block_type,
+            add_context_type=req.add_context_type,
+            selected_path=req.selected_path,
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))

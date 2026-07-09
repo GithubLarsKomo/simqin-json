@@ -210,11 +210,13 @@ class AllowedActionsBody(BaseModel):
     profile_id: str
     node_path: str = ""
     block_type: str = ""
+    add_context_type: str = ""
+    selected_path: str = ""
 
 
 @app.post("/api/v1/authoring/allowed-actions")
 async def allowed_actions(body: AllowedActionsBody) -> dict:
-    """Proxy: get allowed actions for a node path or block type."""
+    """Proxy: get allowed actions for a block type / add context."""
     async with httpx.AsyncClient(timeout=30) as client:
         resp = await client.post(
             f"{WORKER_BASE_URL}/api/v1/authoring/allowed-actions",
@@ -222,6 +224,8 @@ async def allowed_actions(body: AllowedActionsBody) -> dict:
                 "profile_id": body.profile_id,
                 "node_path": body.node_path,
                 "block_type": body.block_type,
+                "add_context_type": body.add_context_type,
+                "selected_path": body.selected_path,
             },
         )
     if resp.status_code >= 400:

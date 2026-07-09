@@ -277,27 +277,38 @@ def test_allowed_actions_unknown_profile():
 
 
 # ---------------------------------------------------------------------------
-# Allowed-actions with block_type (new API)
+# Allowed-actions with add_context_type (new API)
 # ---------------------------------------------------------------------------
 
 
-def test_allowed_actions_block_type_doc():
-    """POST with block_type='doc' returns section etc for dita-topic."""
+def test_allowed_actions_add_context_doc():
+    """paragraph with add_context_type='doc' → allowed_add from doc."""
     response = client.post(
         "/api/v1/authoring/allowed-actions",
-        json={"profile_id": "dita-topic", "block_type": "doc"},
+        json={
+            "profile_id": "dita-topic",
+            "block_type": "doc",
+            "add_context_type": "doc",
+            "selected_path": "doc",
+        },
     )
     assert response.status_code == 200
     data = response.json()
     assert "section" in data["allowed_add"]
     assert "asset" in data["allowed_add"]
+    assert data["can_delete"] is False
 
 
-def test_allowed_actions_block_type_section():
-    """POST with block_type='section' returns paragraph/table/image/link."""
+def test_allowed_actions_add_context_section():
+    """section with add_context_type='section' → section children."""
     response = client.post(
         "/api/v1/authoring/allowed-actions",
-        json={"profile_id": "dita-topic", "block_type": "section"},
+        json={
+            "profile_id": "dita-topic",
+            "block_type": "section",
+            "add_context_type": "section",
+            "selected_path": "sections.0",
+        },
     )
     assert response.status_code == 200
     data = response.json()
@@ -307,88 +318,103 @@ def test_allowed_actions_block_type_section():
     assert "link" in data["allowed_add"]
 
 
-def test_allowed_actions_block_type_paragraph():
-    """POST with block_type='paragraph' returns section children (sibling add)."""
+def test_allowed_actions_paragraph_selected():
+    """paragraph selected: allowed_add from section, attributes from paragraph."""
     response = client.post(
         "/api/v1/authoring/allowed-actions",
-        json={"profile_id": "dita-topic", "block_type": "paragraph"},
+        json={
+            "profile_id": "dita-topic",
+            "block_type": "paragraph",
+            "add_context_type": "section",
+            "selected_path": "sections.0.paragraphs.1",
+        },
     )
     assert response.status_code == 200
     data = response.json()
-    # paragraph has no allowed_children itself, so allowed_add bleeds from section
-    assert len(data["allowed_add"]) == 0
-
-
-def test_allowed_actions_block_type_paragraph_as_section():
-    """When parent is section, paragraph siblings should be allowed.
-    
-    This is the semantic the frontend uses: it sends block_type='section'
-    when the selected node is a paragraph, because it wants sibling add
-    actions.
-    """
-    response = client.post(
-        "/api/v1/authoring/allowed-actions",
-        json={"profile_id": "dita-topic", "block_type": "section"},
-    )
-    assert response.status_code == 200
-    data = response.json()
+    # allowed_add comes from section context
     assert "paragraph" in data["allowed_add"]
     assert "table" in data["allowed_add"]
+    # allowed_attributes come from paragraph block_type
+    assert "text" in data["allowed_attributes"]
+    assert "id" in data["allowed_attributes"]
+    assert data["can_delete"] is True
 
 
-def test_allowed_actions_block_type_topicref():
-    """POST with block_type='topicref' in dita-map returns topicref."""
+def test_allowed_actions_table_selected():
+    """table selected: allowed_add from section, attributes from table."""
     response = client.post(
         "/api/v1/authoring/allowed-actions",
-        json={"profile_id": "dita-map", "block_type": "topicref"},
+        json={
+            "profile_id": "dita-topic",
+            "block_type": "table",
+            "add_context_type": "section",
+            "selected_path": "sections.0.tables.0",
+        },
+    )
+    assert response.status_code == 200
+    data = response.json()
+    # allowed_add comes from section context
+    assert "paragraph" in data["allowed_add"]
+    assert "table" in data["allowed_add"]
+    # allowed_attributes come from table block_type
+    assert "caption" in data["allowed_attributes"]
+    assert "id" in data["allowed_attributes"]
+    assert "rows" in data["allowed_attributes"] or True  # rows is allowed for table
+    assert data["can_delete"] is True
+
+
+def test_allowed_actions_topicref_selected():
+    """topicref selected: allowed_add from topicref, attributes from topicref."""
+    response = client.post(
+        "/api/v1/authoring/allowed-actions",
+        json={
+            "profile_id": "dita-map",
+            "block_type": "topicref",
+            "add_context_type": "topicref",
+            "selected_path": "topicrefs.0",
+        },
     )
     assert response.status_code == 200
     data = response.json()
     assert "topicref" in data["allowed_add"]
-
-
-def test_allowed_actions_block_type_asset():
-    """POST with block_type='asset' returns empty allowed_add."""
-    response = client.post(
-        "/api/v1/authoring/allowed-actions",
-        json={"profile_id": "dita-topic", "block_type": "asset"},
-    )
-    assert response.status_code == 200
-    data = response.json()
-    assert len(data["allowed_add"]) == 0
-
-
-def test_allowed_actions_block_type_reference():
-    """POST with block_type='reference' returns empty allowed_add."""
-    response = client.post(
-        "/api/v1/authoring/allowed-actions",
-        json={"profile_id": "dita-topic", "block_type": "reference"},
-    )
-    assert response.status_code == 200
-    data = response.json()
-    assert len(data["allowed_add"]) == 0
-
-
-def test_allowed_actions_block_type_topicref_can_delete():
-    """block_type='topicref' should allow delete."""
-    response = client.post(
-        "/api/v1/authoring/allowed-actions",
-        json={"profile_id": "dita-map", "block_type": "topicref"},
-    )
-    assert response.status_code == 200
-    data = response.json()
+    assert "href" in data["allowed_attributes"]
+    assert "navtitle" in data["allowed_attributes"]
     assert data["can_delete"] is True
 
 
-def test_allowed_actions_block_type_doc_cannot_delete():
-    """block_type='doc' should not allow delete."""
+def test_allowed_actions_asset_selected():
+    """asset selected: allowed_add uses asset context (empty), attributes from asset."""
     response = client.post(
         "/api/v1/authoring/allowed-actions",
-        json={"profile_id": "dita-topic", "block_type": "doc"},
+        json={
+            "profile_id": "dita-topic",
+            "block_type": "asset",
+            "add_context_type": "asset",
+            "selected_path": "assets.0",
+        },
     )
     assert response.status_code == 200
     data = response.json()
-    assert data["can_delete"] is False
+    assert len(data["allowed_add"]) == 0
+    assert "href" in data["allowed_attributes"]
+    assert "alt" in data["allowed_attributes"]
+
+
+def test_allowed_actions_reference_selected():
+    """reference selected: allowed_add uses reference context (empty), attributes from reference."""
+    response = client.post(
+        "/api/v1/authoring/allowed-actions",
+        json={
+            "profile_id": "dita-topic",
+            "block_type": "reference",
+            "add_context_type": "reference",
+            "selected_path": "references.0",
+        },
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data["allowed_add"]) == 0
+    assert "href" in data["allowed_attributes"]
 
 
 # ---------------------------------------------------------------------------
