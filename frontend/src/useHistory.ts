@@ -94,34 +94,28 @@ export function useUndoRedoKeys(undo: () => void, redo: () => void) {
  * Returns null if nothing matches.
  */
 export function extractPathFromValidationError(error: string): string | null {
-  // Try to find patterns like sections[0], topicrefs[0], assets[0] etc.
+  // Normalize: strip leading "doc." prefix for matching
+  const normalized = error.replace(/^doc\./i, '');
+
+  // Try patterns without doc prefix
   const patterns = [
-    /docs\.sections\[(\d+)\]\.paragraphs\[(\d+)\]/,
-    /docs\.sections\[(\d+)\]\.tables\[(\d+)\]/,
-    /docs\.sections\[(\d+)\]\.images\[(\d+)\]/,
-    /docs\.sections\[(\d+)\]\.links\[(\d+)\]/,
-    /docs\.topicrefs\[(\d+)\]\.children\[(\d+)\]/,
-    /docs\.sections\[(\d+)\]/,
-    /docs\.topicrefs\[(\d+)\]/,
-    /docs\.assets\[(\d+)\]/,
-    /docs\.references\[(\d+)\]/,
+    /sections\[(\d+)\]\.paragraphs\[(\d+)\]/,
+    /sections\[(\d+)\]\.tables\[(\d+)\]/,
+    /sections\[(\d+)\]\.images\[(\d+)\]/,
+    /sections\[(\d+)\]\.links\[(\d+)\]/,
+    /topicrefs\[(\d+)\]\.children\[(\d+)\]/,
+    /sections\[(\d+)\]/,
+    /topicrefs\[(\d+)\]/,
+    /assets\[(\d+)\]/,
+    /references\[(\d+)\]/,
   ];
 
   for (const pat of patterns) {
-    const m = error.match(pat);
+    const m = normalized.match(pat);
     if (m) {
-      const parts: string[] = [];
-      // m[0] is the full match like "doc.sections[0].paragraphs[1]"
-      // We strip "doc." prefix and convert bracket to dot
-      const withoutDoc = m[0].replace(/^doc\./, '');
-      return withoutDoc.replace(/\[(\d+)\]/g, '.$1');
+      // Convert bracket notation to dot notation
+      return m[0].replace(/\[(\d+)\]/g, '.$1');
     }
-  }
-
-  // Simpler: just find sections[N], topicrefs[N], assets[N], references[N] patterns
-  const simpleMatch = error.match(/(sections|topicrefs|assets|references)\[(\d+)\]/);
-  if (simpleMatch) {
-    return `${simpleMatch[1]}.${simpleMatch[2]}`;
   }
 
   return null;

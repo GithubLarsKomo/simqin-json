@@ -353,12 +353,14 @@ export default function NewDocument({ onNavigateHome }: { onNavigateHome: () => 
   }, []);
 
   const pick = useCallback(async (id: string) => {
+    // Warn if user already has unsaved work in progress
+    if (doc && !confirm('Aktuelles Dokument wird durch die neue Vorlage ersetzt. Fortfahren?')) return;
     setTid(id); setVal(null); setXmlP(''); setJsonP(''); setErr(null); setSelectedPath('doc'); setDraftLoaded(false);
     try {
-      // Check for draft first — ask user
+      // Check for draft — always ask, never auto-load
       const draft = loadDraft(id);
       if (draft) {
-        const ok = confirm(`Draft vom ${new Date(draft.meta.savedAt).toLocaleString()} gefunden.\n\n"OK" = Draft laden\n"Abbrechen" = neue Vorlage starten`);
+        const ok = confirm(`Draft vom ${new Date(draft.meta.savedAt).toLocaleString()} gefunden.\n\n"OK" = Draft laden\n"Abbrechen" = neue Vorlage`);
         if (ok) {
           setDoc(draft.doc);
           const pr = await fetch(`${API_BASE}/api/v1/authoring/profiles/${id}`);
@@ -366,16 +368,16 @@ export default function NewDocument({ onNavigateHome }: { onNavigateHome: () => 
           setDraftLoaded(true);
           return;
         }
-        // Fall through to load template fresh
       }
+      // Load fresh template
       const r = await fetch(`${API_BASE}/api/v1/templates/${id}`);
       if (!r.ok) { setErr(`Fehler: ${r.status}`); return; }
       const d: AuthoringDoc = await r.json(); setDoc(d);
-      clearDraft(id); // Clear stale draft since user chose new template
+      clearDraft(id);
       const pr = await fetch(`${API_BASE}/api/v1/authoring/profiles/${id}`);
       if (pr.ok) setProfile(await pr.json());
     } catch (ex: any) { setErr(String(ex)); }
-  }, [setDoc]);
+  }, [setDoc, doc]);
 
   // Fetch allowed-actions on selection change
   useEffect(() => {
@@ -495,6 +497,7 @@ export default function NewDocument({ onNavigateHome }: { onNavigateHome: () => 
     const reader = new FileReader();
     reader.onload = () => {
       try {
+        if (doc && !confirm('Aktuelles Dokument durch Import ersetzen?')) { e.target.value = ''; return; }
         const d = JSON.parse(reader.result as string); setDoc(d); setTid(d.template || ''); setSelectedPath('doc');
         fetch(`${API_BASE}/api/v1/authoring/profiles/${d.template}`).then(r => r.ok ? r.json() : null).then(setProfile).catch(() => {});
       } catch (ex) { setErr(String(ex)); }
@@ -519,7 +522,7 @@ export default function NewDocument({ onNavigateHome }: { onNavigateHome: () => 
   return (<main className="editor-main">
     <header className="editor-header">
       <div className="editor-header-left">
-        <button className="link-btn" onClick={() => { setDoc(null); setTid(''); setProfile(null); }}>{'\u2190'} Vorlage</button>
+        <button className="link-btn" onClick={() => { if (!doc || confirm('Zum Vorlage-Auswahl zurückkehren? Ungespeicherte Änderungen gehen verloren.')) { setDoc(null); setTid(''); setProfile(null); } }}>{'\u2190'} Vorlage</button>
         <h1>{profile?.name || doc.template}</h1>
       </div>
       <div className="editor-header-right">
