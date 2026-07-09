@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useHistory, useUndoRedoKeys, saveDraft, loadDraft, clearDraft, hasDraft, useAutosave } from './useHistory';
+import type { AutosaveStatus } from './useHistory';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080';
 
@@ -332,7 +334,7 @@ function ActionBar({ actions, selectedPath, onAdd, onDelete, onMoveUp, onMoveDow
 export default function NewDocument({ onNavigateHome }: { onNavigateHome: () => void }) {
   const [templates, setTemplates] = useState<TemplateInfo[]>([]);
   const [tid, setTid] = useState('');
-  const [doc, setDoc] = useState<AuthoringDoc | null>(null);
+  const { current: doc, setCurrent: setDoc, undo, redo, canUndo, canRedo } = useHistory<AuthoringDoc>(null);
   const [val, setVal] = useState<ValidationResult | null>(null);
   const [xmlP, setXmlP] = useState('');
   const [jsonP, setJsonP] = useState('');
@@ -341,21 +343,35 @@ export default function NewDocument({ onNavigateHome }: { onNavigateHome: () => 
   const [selectedPath, setSelectedPath] = useState<string>('doc');
   const [profile, setProfile] = useState<Profile | null>(null);
   const [actions, setActions] = useState<AllowedActions | null>(null);
+  const [draftLoaded, setDraftLoaded] = useState(false);
+
+  useUndoRedoKeys(undo, redo);
+  const { status: autosaveStatus, lastSaved } = useAutosave(doc, tid);
 
   useEffect(() => {
     fetch(`${API_BASE}/api/v1/templates`).then(r => r.json()).then(setTemplates).catch(e => setErr(String(e)));
   }, []);
 
   const pick = useCallback(async (id: string) => {
-    setTid(id); setVal(null); setXmlP(''); setJsonP(''); setErr(null); setSelectedPath('doc');
+    setTid(id); setVal(null); setXmlP(''); setJsonP(''); setErr(null); setSelectedPath('doc'); setDraftLoaded(false);
     try {
+      // Check for draft first
+      const draft = loadDraft(id);
+      if (draft) {
+        setDoc(draft.doc);
+        setProfile(null);
+        const pr = await fetch(`${API_BASE}/api/v1/authoring/profiles/${id}`);
+        if (pr.ok) setProfile(await pr.json());
+        setDraftLoaded(true);
+        return;
+      }
       const r = await fetch(`${API_BASE}/api/v1/templates/${id}`);
       if (!r.ok) { setErr(`Fehler: ${r.status}`); return; }
       const d: AuthoringDoc = await r.json(); setDoc(d);
       const pr = await fetch(`${API_BASE}/api/v1/authoring/profiles/${id}`);
       if (pr.ok) setProfile(await pr.json());
     } catch (ex: any) { setErr(String(ex)); }
-  }, []);
+  }, [setDoc]);
 
   // Fetch allowed-actions on selection change
   useEffect(() => {
@@ -374,7 +390,10 @@ export default function NewDocument({ onNavigateHome }: { onNavigateHome: () => 
   }, [doc, profile, selectedPath]);
 
   const withDoc = (fn: (d: AuthoringDoc) => void) => {
-    setDoc(prev => { if (!prev) return prev; const n = JSON.parse(JSON.stringify(prev)); fn(n); return n; });
+    if (!doc) return;
+    const n = JSON.parse(JSON.stringify(doc));
+    fn(n);
+    setDoc(n);
   };
 
   // Live preview/validation
@@ -395,7 +414,8 @@ export default function NewDocument({ onNavigateHome }: { onNavigateHome: () => 
   const handleSetTitle = (v: string) => withDoc(d => { d.title = v; });
 
   const handleUpdateField = (path: string, key: string, value: string) => {
-    setDoc(prev => prev ? setByPathCloned(prev, `${path}.${key}`, value) : prev);
+    if (!doc) return;
+    setDoc(setByPathCloned(doc, `${path}.${key}`, value));
   };
 
   const handleAdd = (type: string) => {
@@ -499,6 +519,22 @@ export default function NewDocument({ onNavigateHome }: { onNavigateHome: () => 
         <h1>{profile?.name || doc.template}</h1>
       </div>
       <div className="editor-header-right">
+        {/* Undo/Redo */}
+        <button className="btn-sm" onClick={undo} disabled={!canUndo} title="Rückgängig (Ctrl+Z)">{'\u21A9'}</button>
+        <button className="btn-sm" onClick={redo} disabled={!canRedo} title="Wiederholen (Ctrl+Y)">{'\u21AA'}</button>
+        <span className="separator">|</span>
+        {/* Autosave status */}
+        <span className={`autosave-status autosave-${autosaveStatus}`}>
+          {autosaveStatus === 'saved' ? '\u2705' : autosaveStatus === 'unsaved' ? '\u23F3' : '\u23F3'}
+          {autosaveStatus === 'saved' ? 'Gespeichert' : 'Ungespeichert'}
+          {lastSaved && <span className="autosave-time"> ({lastSaved})</span>}
+        </span>
+        <span className="separator">|</span>
+        {/* Draft buttons */}
+        <button className="btn-sm" onClick={() => { saveDraft(doc, tid); }} title="Zwischenspeichern">Draft speichern</button>
+        <button className="btn-sm" onClick={() => { const d = loadDraft(tid); if (d && confirm('Aktuelles Dokument überschreiben?')) { setDoc(d.doc); setDraftLoaded(true); } }} disabled={!hasDraft(tid)}>Draft laden</button>
+        <button className="btn-sm" onClick={() => { if (confirm('Draft löschen?')) { clearDraft(tid); } }}>Draft löschen</button>
+        <span className="separator">|</span>
         <span className="sel-badge">{btLabel} ausgewählt</span>
         <div className="export-buttons">
           <button onClick={expXml} className="btn-primary">{'\u2B07'} XML</button>
@@ -527,12 +563,13 @@ export default function NewDocument({ onNavigateHome }: { onNavigateHome: () => 
         </div>
         <div className="card wysiwyg-editor-card">
           <div className="wysiwyg-canvas">
-            <h3>{doc.title || '(Titel)'}</h3>
+            <h3 contentEditable suppressContentEditableWarning onBlur={e => handleSetTitle(e.currentTarget.textContent || '')}>{doc.title || '(Titel)'}</h3>
             {doc.sections.map((sec, si) => (
               <div key={sec.id || si} className={`wysiwyg-block ${selectedPath === `sections.${si}` ? 'wysiwyg-block-selected' : ''}`} onClick={() => selSection(si)}>
-                <h4>{sec.heading || '(Abschnitt)'}</h4>
+                <h4 contentEditable suppressContentEditableWarning onBlur={e => { withDoc(d => { d.sections[si].heading = e.currentTarget.textContent || ''; }); }}>{sec.heading || '(Abschnitt)'}</h4>
                 {sec.paragraphs.map((p, pi) => (
-                  <p key={p.id || pi} className={`wysiwyg-inline ${selectedPath === `sections.${si}.paragraphs.${pi}` ? 'wysiwyg-inline-selected' : ''}`} onClick={(e) => selChild(`sections.${si}.paragraphs.${pi}`, e)}>
+                  <p key={p.id || pi} className={`wysiwyg-inline ${selectedPath === `sections.${si}.paragraphs.${pi}` ? 'wysiwyg-inline-selected' : ''}`} onClick={(e) => selChild(`sections.${si}.paragraphs.${pi}`, e)}
+                    contentEditable suppressContentEditableWarning onBlur={e => { withDoc(d => { d.sections[si].paragraphs[pi].text = e.currentTarget.textContent || ''; }); }}>
                     {p.text || '(leer)'}
                   </p>
                 ))}
@@ -586,7 +623,14 @@ export default function NewDocument({ onNavigateHome }: { onNavigateHome: () => 
           <div className="validation-panel">
             {val ? (val.valid
               ? <p className="validation-ok">{'\u2705'} Dokument ist gültig</p>
-              : <ul className="validation-errors">{val.errors.map((e, i) => <li key={i} className="validation-error-item">{e}</li>)}</ul>
+              : <ul className="validation-errors">{val.errors.map((e, i) => (
+                <li key={i} className="validation-error-item" style={{cursor:'pointer'}} onClick={() => {
+                  // Try to extract a path from error message (e.g. "sections[0]")
+                  const m = e.match(/sections\[\d+\]/);
+                  if (m) setSelectedPath(m[0].replace('[','.').replace(']',''));
+                }}>{e}
+                </li>
+              ))}</ul>
             ) : <p>Validierung läuft...</p>}
           </div>
         )}

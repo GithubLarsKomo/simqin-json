@@ -164,7 +164,16 @@ pre { background: #101820; color: #e8eef5; border-radius: 8px; padding: 16px; ov
 .editor-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; gap: 12px; flex-wrap: wrap; }
 .editor-header-left { display: flex; align-items: center; gap: 12px; }
 .editor-header-left h1 { margin: 0; font-size: 1.3rem; }
-.editor-header-right { display: flex; align-items: center; gap: 12px; }
+.editor-header-right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+/* Autosave status */
+.autosave-status { font-size: .85rem; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.autosave-saved { color: #1e8449; }
+.autosave-unsaved { color: #ca6f1e; }
+.autosave-time { color: #566573; font-size: .8rem; }
+.separator { color: #dde2e8; margin: 0 2px; }
+.btn-sm { padding: 4px 10px; font-size: .85rem; border-radius: 6px; border: 1px solid #9aa7b3; background: #fff; cursor: pointer; }
+.btn-sm:disabled { opacity: .4; cursor: not-allowed; }
 
 .three-panel-layout { display: grid; grid-template-columns: 240px 1fr 220px; gap: 12px; align-items: start; margin-bottom: 12px; }
 .panel-left { min-width: 0; }
