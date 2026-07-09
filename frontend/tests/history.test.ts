@@ -190,19 +190,75 @@ describe('Draft persistence', () => {
 // Validation path extraction
 // ---------------------------------------------------------------------------
 
-describe('Validation path extraction', () => {
-  it('extracts sections[N] from error messages', () => {
-    const msgs = [
-      'sections[0]: section heading is required.',
-      'sections[3]: missing field',
-      'some other error without path',
-    ];
-    const paths = msgs.map(m => {
-      const match = m.match(/sections\[\d+\]/);
-      return match ? match[0].replace('[', '.').replace(']', '') : null;
-    });
-    expect(paths[0]).toBe('sections.0');
-    expect(paths[1]).toBe('sections.3');
-    expect(paths[2]).toBeNull();
+describe('extractPathFromValidationError', () => {
+
+function extractPathFromValidationError(error: string): string | null {
+  const pats = [
+    /docs\.sections\[(\d+)\]\.paragraphs\[(\d+)\]/,
+    /docs\.sections\[(\d+)\]\.tables\[(\d+)\]/,
+    /docs\.sections\[(\d+)\]\.images\[(\d+)\]/,
+    /docs\.sections\[(\d+)\]\.links\[(\d+)\]/,
+    /docs\.topicrefs\[(\d+)\]\.children\[(\d+)\]/,
+    /docs\.sections\[(\d+)\]/,
+    /docs\.topicrefs\[(\d+)\]/,
+    /docs\.assets\[(\d+)\]/,
+    /docs\.references\[(\d+)\]/,
+  ];
+  for (const pat of pats) {
+    const m = error.match(pat);
+    if (m) {
+      const wd = m[0].replace(/^doc\./, '');
+      return wd.replace(/\[(\d+)\]/g, '.$1');
+    }
+  }
+  const sm = error.match(/(sections|topicrefs|assets|references)\[(\d+)\]/);
+  if (sm) return `${sm[1]}.${sm[2]}`;
+  return null;
+}
+
+  it('extracts sections[N]', () => {
+    expect(extractPathFromValidationError('doc.sections[0]: heading required')).toBe('sections.0');
+    expect(extractPathFromValidationError('doc.sections[3] missing field')).toBe('sections.3');
+  });
+
+  it('extracts sections[N].paragraphs[N]', () => {
+    expect(extractPathFromValidationError('doc.sections[0].paragraphs[1] too long')).toBe('sections.0.paragraphs.1');
+  });
+
+  it('extracts sections[N].tables[N]', () => {
+    expect(extractPathFromValidationError('doc.sections[0].tables[2] error')).toBe('sections.0.tables.2');
+  });
+
+  it('extracts sections[N].images[N]', () => {
+    expect(extractPathFromValidationError('doc.sections[1].images[0] missing src')).toBe('sections.1.images.0');
+  });
+
+  it('extracts sections[N].links[N]', () => {
+    expect(extractPathFromValidationError('doc.sections[1].links[0] empty href')).toBe('sections.1.links.0');
+  });
+
+  it('extracts topicrefs[N]', () => {
+    expect(extractPathFromValidationError('doc.topicrefs[0] missing navtitle')).toBe('topicrefs.0');
+  });
+
+  it('extracts topicrefs[N].children[N]', () => {
+    expect(extractPathFromValidationError('doc.topicrefs[0].children[1] error')).toBe('topicrefs.0.children.1');
+  });
+
+  it('extracts assets[N]', () => {
+    expect(extractPathFromValidationError('doc.assets[0] empty href')).toBe('assets.0');
+  });
+
+  it('extracts references[N]', () => {
+    expect(extractPathFromValidationError('doc.references[2] missing')).toBe('references.2');
+  });
+
+  it('returns null for unrelated error', () => {
+    expect(extractPathFromValidationError('something else entirely')).toBeNull();
+  });
+
+  it('simple bracket notation fallback works', () => {
+    expect(extractPathFromValidationError('sections[0] heading required')).toBe('sections.0');
+    expect(extractPathFromValidationError('topicrefs[3] error')).toBe('topicrefs.3');
   });
 });

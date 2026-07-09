@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useHistory, useUndoRedoKeys, saveDraft, loadDraft, clearDraft, hasDraft, useAutosave } from './useHistory';
+import { useHistory, useUndoRedoKeys, saveDraft, loadDraft, clearDraft, hasDraft, useAutosave, extractPathFromValidationError } from './useHistory';
 import type { AutosaveStatus } from './useHistory';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080';
@@ -355,19 +355,23 @@ export default function NewDocument({ onNavigateHome }: { onNavigateHome: () => 
   const pick = useCallback(async (id: string) => {
     setTid(id); setVal(null); setXmlP(''); setJsonP(''); setErr(null); setSelectedPath('doc'); setDraftLoaded(false);
     try {
-      // Check for draft first
+      // Check for draft first — ask user
       const draft = loadDraft(id);
       if (draft) {
-        setDoc(draft.doc);
-        setProfile(null);
-        const pr = await fetch(`${API_BASE}/api/v1/authoring/profiles/${id}`);
-        if (pr.ok) setProfile(await pr.json());
-        setDraftLoaded(true);
-        return;
+        const ok = confirm(`Draft vom ${new Date(draft.meta.savedAt).toLocaleString()} gefunden.\n\n"OK" = Draft laden\n"Abbrechen" = neue Vorlage starten`);
+        if (ok) {
+          setDoc(draft.doc);
+          const pr = await fetch(`${API_BASE}/api/v1/authoring/profiles/${id}`);
+          if (pr.ok) setProfile(await pr.json());
+          setDraftLoaded(true);
+          return;
+        }
+        // Fall through to load template fresh
       }
       const r = await fetch(`${API_BASE}/api/v1/templates/${id}`);
       if (!r.ok) { setErr(`Fehler: ${r.status}`); return; }
       const d: AuthoringDoc = await r.json(); setDoc(d);
+      clearDraft(id); // Clear stale draft since user chose new template
       const pr = await fetch(`${API_BASE}/api/v1/authoring/profiles/${id}`);
       if (pr.ok) setProfile(await pr.json());
     } catch (ex: any) { setErr(String(ex)); }
@@ -532,7 +536,7 @@ export default function NewDocument({ onNavigateHome }: { onNavigateHome: () => 
         <span className="separator">|</span>
         {/* Draft buttons */}
         <button className="btn-sm" onClick={() => { saveDraft(doc, tid); }} title="Zwischenspeichern">Draft speichern</button>
-        <button className="btn-sm" onClick={() => { const d = loadDraft(tid); if (d && confirm('Aktuelles Dokument überschreiben?')) { setDoc(d.doc); setDraftLoaded(true); } }} disabled={!hasDraft(tid)}>Draft laden</button>
+        <button className="btn-sm" onClick={() => { if (!doc) return; if (!confirm('Aktuelles Dokument überschreiben?')) return; const d = loadDraft(tid); if (d) { setDoc(d.doc); setDraftLoaded(true); } }} disabled={!hasDraft(tid)}>Draft laden</button>
         <button className="btn-sm" onClick={() => { if (confirm('Draft löschen?')) { clearDraft(tid); } }}>Draft löschen</button>
         <span className="separator">|</span>
         <span className="sel-badge">{btLabel} ausgewählt</span>
@@ -575,26 +579,36 @@ export default function NewDocument({ onNavigateHome }: { onNavigateHome: () => 
                 ))}
                 {sec.tables.map((tbl, ti) => (
                   <div key={tbl.id || ti} className={`wysiwyg-table ${selectedPath === `sections.${si}.tables.${ti}` ? 'wysiwyg-block-selected' : ''}`} onClick={(e) => selChild(`sections.${si}.tables.${ti}`, e)}>
-                    {tbl.caption && <p><strong>{tbl.caption}</strong></p>}
-                    <table><tbody>{tbl.rows.map((row, ri) => <tr key={ri}>{row.map((cell, ci) => <td key={ci}>{cell || '\u00A0'}</td>)}</tr>)}</tbody></table>
+                    <p contentEditable suppressContentEditableWarning onBlur={e => withDoc(d => { d.sections[si].tables[ti].caption = e.currentTarget.textContent || ''; })}>
+                      {tbl.caption ? <strong>{tbl.caption}</strong> : <em>(Tabellen-Titel)</em>}
+                    </p>
+                    <table><tbody>{tbl.rows.map((row, ri) => <tr key={ri}>{row.map((cell, ci) => (
+                      <td key={ci} contentEditable suppressContentEditableWarning onBlur={e => withDoc(d => { d.sections[si].tables[ti].rows[ri][ci] = e.currentTarget.textContent || ''; })}>
+                        {cell || '\u00A0'}
+                      </td>
+                    ))}</tr>)}</tbody></table>
                   </div>
                 ))}
                 {sec.images.map((img, ii) => (
-                  <p key={img.id || ii} className={`wysiwyg-inline ${selectedPath === `sections.${si}.images.${ii}` ? 'wysiwyg-inline-selected' : ''}`} onClick={(e) => selChild(`sections.${si}.images.${ii}`, e)}>
-                    [Bild: {img.src || '(leer)'}]
-                  </p>
+                  <div key={img.id || ii} className={`wysiwyg-inline wysiwyg-image ${selectedPath === `sections.${si}.images.${ii}` ? 'wysiwyg-inline-selected' : ''}`} onClick={(e) => selChild(`sections.${si}.images.${ii}`, e)}>
+                    <span contentEditable suppressContentEditableWarning onBlur={e => withDoc(d => { d.sections[si].images[ii].src = e.currentTarget.textContent || ''; })}>{img.src || '(Bild-URL)'}</span>
+                    <span className="wysiwyg-label"> alt=</span>
+                    <span contentEditable suppressContentEditableWarning onBlur={e => withDoc(d => { d.sections[si].images[ii].alt = e.currentTarget.textContent || ''; })}>{img.alt || ''}</span>
+                  </div>
                 ))}
                 {sec.links.map((lnk, li) => (
-                  <p key={lnk.id || li} className={`wysiwyg-inline ${selectedPath === `sections.${si}.links.${li}` ? 'wysiwyg-inline-selected' : ''}`} onClick={(e) => selChild(`sections.${si}.links.${li}`, e)}>
-                    [Link: {lnk.text || '(leer)'} &rarr; {lnk.href}]
-                  </p>
+                  <div key={lnk.id || li} className={`wysiwyg-inline wysiwyg-link ${selectedPath === `sections.${si}.links.${li}` ? 'wysiwyg-inline-selected' : ''}`} onClick={(e) => selChild(`sections.${si}.links.${li}`, e)}>
+                    <span contentEditable suppressContentEditableWarning onBlur={e => withDoc(d => { d.sections[si].links[li].text = e.currentTarget.textContent || ''; })}>{lnk.text || '(Link-Text)'}</span>
+                    <span className="wysiwyg-label"> &rarr; </span>
+                    <span contentEditable suppressContentEditableWarning onBlur={e => withDoc(d => { d.sections[si].links[li].href = e.currentTarget.textContent || ''; })}>{lnk.href || '(href)'}</span>
+                  </div>
                 ))}
               </div>
             ))}
             {doc.template === 'dita-map' && (
               <div className="wysiwyg-map">
                 <h4>TopicRefs</h4>
-                {renderNestedTR(doc.topicrefs, 'topicrefs', selectedPath, selChild)}
+                {renderNestedTR(doc.topicrefs, 'topicrefs', selectedPath, selChild, withDoc)}
               </div>
             )}
           </div>
@@ -623,14 +637,14 @@ export default function NewDocument({ onNavigateHome }: { onNavigateHome: () => 
           <div className="validation-panel">
             {val ? (val.valid
               ? <p className="validation-ok">{'\u2705'} Dokument ist gültig</p>
-              : <ul className="validation-errors">{val.errors.map((e, i) => (
-                <li key={i} className="validation-error-item" style={{cursor:'pointer'}} onClick={() => {
-                  // Try to extract a path from error message (e.g. "sections[0]")
-                  const m = e.match(/sections\[\d+\]/);
-                  if (m) setSelectedPath(m[0].replace('[','.').replace(']',''));
-                }}>{e}
-                </li>
-              ))}</ul>
+              : <ul className="validation-errors">{val.errors.map((e, i) => {
+                const vp = extractPathFromValidationError(e);
+                return (
+                  <li key={i} className={`validation-error-item ${vp ? 'clickable' : ''}`}
+                    onClick={() => { if (vp) setSelectedPath(vp); }}
+                  >{e}</li>
+                );
+              })}</ul>
             ) : <p>Validierung läuft...</p>}
           </div>
         )}
@@ -643,7 +657,7 @@ export default function NewDocument({ onNavigateHome }: { onNavigateHome: () => 
 // Recursive topicref renderer
 // ---------------------------------------------------------------------------
 
-function renderNestedTR(refs: TopicRef[], basePath: string, selectedPath: string, onSelect: (path: string, e: React.MouseEvent) => void): React.ReactNode {
+function renderNestedTR(refs: TopicRef[], basePath: string, selectedPath: string, onSelect: (path: string, e: React.MouseEvent) => void, withDoc: (fn: (d: AuthoringDoc) => void) => void): React.ReactNode {
   return <ul style={{ paddingLeft: '1.5rem', margin: '4px 0' }}>
     {refs.map((tr, i) => {
       const tp = `${basePath}.${i}`;
@@ -652,8 +666,34 @@ function renderNestedTR(refs: TopicRef[], basePath: string, selectedPath: string
           className={`wysiwyg-inline ${selectedPath === tp ? 'wysiwyg-inline-selected' : ''}`}
           onClick={(e) => onSelect(tp, e)}
         >
-          {tr.navtitle || tr.href || '(leer)'}
-          {tr.children.length > 0 && renderNestedTR(tr.children, `${tp}.children`, selectedPath, onSelect)}
+          <span contentEditable suppressContentEditableWarning
+            onBlur={e => withDoc(d => {
+              const parts = tp.split('.');
+              let refs2: TopicRef[] = d.topicrefs;
+              for (let pi = 0; pi < parts.length; pi++) {
+                const idx = parseInt(parts[pi], 10);
+                if (!Number.isNaN(idx) && refs2[idx]) {
+                  if (pi === parts.length - 1) refs2[idx].navtitle = e.currentTarget.textContent || '';
+                  else refs2 = refs2[idx].children;
+                }
+              }
+            })}
+          >{tr.navtitle || tr.href || '(leer)'}</span>
+          <span className="wysiwyg-label"> href=</span>
+          <span contentEditable suppressContentEditableWarning
+            onBlur={e => withDoc(d => {
+              const parts = tp.split('.');
+              let refs2: TopicRef[] = d.topicrefs;
+              for (let pi = 0; pi < parts.length; pi++) {
+                const idx = parseInt(parts[pi], 10);
+                if (!Number.isNaN(idx) && refs2[idx]) {
+                  if (pi === parts.length - 1) refs2[idx].href = e.currentTarget.textContent || '';
+                  else refs2 = refs2[idx].children;
+                }
+              }
+            })}
+          >{tr.href || ''}</span>
+          {tr.children.length > 0 && renderNestedTR(tr.children, `${tp}.children`, selectedPath, onSelect, withDoc)}
         </li>
       );
     })}

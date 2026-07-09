@@ -1,52 +1,54 @@
 /**
  * Undo/Redo history hook for AuthoringDoc.
  * Maintains a stack of snapshots and supports Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z.
+ *
+ * Uses a state version counter so canUndo / canRedo trigger reliable re-renders.
  */
 
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 
 const MAX_HISTORY = 50;
 
 export function useHistory<T>(initial: T | null) {
   const [current, setCurrent] = useState<T | null>(initial);
-  const pastRef = useRef<T[]>([]);
-  const futureRef = useRef<T[]>([]);
-  const skipRef = useRef(false);
+  // Store stacks as state so length changes force re-render
+  const [past, setPast] = useState<T[]>([]);
+  const [future, setFuture] = useState<T[]>([]);
 
   const push = useCallback((next: T | null) => {
-    if (skipRef.current) {
-      skipRef.current = false;
-      return;
-    }
     if (current !== null) {
-      pastRef.current = [...pastRef.current.slice(-(MAX_HISTORY - 1)), JSON.parse(JSON.stringify(current))];
+      setPast(p => [...p.slice(-(MAX_HISTORY - 1)), JSON.parse(JSON.stringify(current))]);
     }
-    futureRef.current = [];
+    setFuture([]);
     setCurrent(next);
   }, [current]);
 
   const undo = useCallback(() => {
-    if (pastRef.current.length === 0 || current === null) return;
-    const prev = pastRef.current.pop()!;
-    futureRef.current = [...futureRef.current, JSON.parse(JSON.stringify(current))];
-    skipRef.current = true;
-    setCurrent(prev);
+    setPast(p => {
+      if (p.length === 0 || current === null) return p;
+      const prev = p[p.length - 1];
+      setFuture(f => [...f, JSON.parse(JSON.stringify(current))]);
+      setCurrent(prev);
+      return p.slice(0, -1);
+    });
   }, [current]);
 
   const redo = useCallback(() => {
-    if (futureRef.current.length === 0 || current === null) return;
-    const next = futureRef.current.pop()!;
-    pastRef.current = [...pastRef.current, JSON.parse(JSON.stringify(current))];
-    skipRef.current = true;
-    setCurrent(next);
+    setFuture(f => {
+      if (f.length === 0 || current === null) return f;
+      const next = f[f.length - 1];
+      setPast(p => [...p, JSON.parse(JSON.stringify(current))]);
+      setCurrent(next);
+      return f.slice(0, -1);
+    });
   }, [current]);
 
-  const canUndo = pastRef.current.length > 0;
-  const canRedo = futureRef.current.length > 0;
+  const canUndo = past.length > 0;
+  const canRedo = future.length > 0;
 
   const clear = useCallback(() => {
-    pastRef.current = [];
-    futureRef.current = [];
+    setPast([]);
+    setFuture([]);
   }, []);
 
   return { current, setCurrent: push, undo, redo, canUndo, canRedo, clear };
@@ -66,6 +68,63 @@ export function useUndoRedoKeys(undo: () => void, redo: () => void) {
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [undo, redo]);
+}
+
+// ---------------------------------------------------------------------------
+// Validation path extraction
+// ---------------------------------------------------------------------------
+
+/**
+ * Convert a validation error string like "sections[0]" or
+ * "doc.sections[0].paragraphs[1]" into a frontend dot path
+ * like "sections.0" or "sections.0.paragraphs.1".
+ *
+ * Supports all paths listed in the spec:
+ *   doc
+ *   doc.sections[0]
+ *   doc.sections[0].paragraphs[1]
+ *   doc.sections[0].tables[0]
+ *   doc.sections[0].images[0]
+ *   doc.sections[0].links[0]
+ *   doc.topicrefs[0]
+ *   doc.topicrefs[0].children[0]
+ *   doc.assets[0]
+ *   doc.references[0]
+ *
+ * Returns null if nothing matches.
+ */
+export function extractPathFromValidationError(error: string): string | null {
+  // Try to find patterns like sections[0], topicrefs[0], assets[0] etc.
+  const patterns = [
+    /docs\.sections\[(\d+)\]\.paragraphs\[(\d+)\]/,
+    /docs\.sections\[(\d+)\]\.tables\[(\d+)\]/,
+    /docs\.sections\[(\d+)\]\.images\[(\d+)\]/,
+    /docs\.sections\[(\d+)\]\.links\[(\d+)\]/,
+    /docs\.topicrefs\[(\d+)\]\.children\[(\d+)\]/,
+    /docs\.sections\[(\d+)\]/,
+    /docs\.topicrefs\[(\d+)\]/,
+    /docs\.assets\[(\d+)\]/,
+    /docs\.references\[(\d+)\]/,
+  ];
+
+  for (const pat of patterns) {
+    const m = error.match(pat);
+    if (m) {
+      const parts: string[] = [];
+      // m[0] is the full match like "doc.sections[0].paragraphs[1]"
+      // We strip "doc." prefix and convert bracket to dot
+      const withoutDoc = m[0].replace(/^doc\./, '');
+      return withoutDoc.replace(/\[(\d+)\]/g, '.$1');
+    }
+  }
+
+  // Simpler: just find sections[N], topicrefs[N], assets[N], references[N] patterns
+  const simpleMatch = error.match(/(sections|topicrefs|assets|references)\[(\d+)\]/);
+  if (simpleMatch) {
+    return `${simpleMatch[1]}.${simpleMatch[2]}`;
+  }
+
+  return null;
 }
 
 // ---------------------------------------------------------------------------
