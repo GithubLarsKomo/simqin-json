@@ -373,7 +373,6 @@ export default function NewDocument({ onNavigateHome }: { onNavigateHome: () => 
       const r = await fetch(`${API_BASE}/api/v1/templates/${id}`);
       if (!r.ok) { setErr(`Fehler: ${r.status}`); return; }
       const d: AuthoringDoc = await r.json(); setDoc(d);
-      clearDraft(id);
       const pr = await fetch(`${API_BASE}/api/v1/authoring/profiles/${id}`);
       if (pr.ok) setProfile(await pr.json());
     } catch (ex: any) { setErr(String(ex)); }
