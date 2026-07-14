@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SIMQIN Project",
+  "type": "object",
+  "required": ["id", "name", "created", "modified", "documents", "assets", "metadata", "settings"],
+  "additionalProperties": true,
+  "properties": {
+    "id": { "type": "string" },
+    "name": { "type": "string" },
+    "created": { "type": "string" },
+    "modified": { "type": "string" },
+    "root_document_id": { "type": ["string", "null"] },
+    "documents": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/project_document" }
+    },
+    "assets": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/project_asset" }
+    },
+    "metadata": { "type": "object" },
+    "settings": { "type": "object" }
+  },
+  "$defs": {
+    "project_document": {
+      "type": "object",
+      "required": ["id", "title", "filename"],
+      "additionalProperties": true,
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "filename": { "type": "string" }
+      }
+    },
+    "project_asset": {
+      "type": "object",
+      "required": ["id", "filename", "mime"],
+      "additionalProperties": true,
+      "properties": {
+        "id": { "type": "string" },
+        "filename": { "type": "string" },
+        "mime": { "type": "string" },
+        "size": { "type": "integer" },
+        "refs": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  }
+}

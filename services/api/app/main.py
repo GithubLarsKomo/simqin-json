@@ -231,3 +231,172 @@ async def allowed_actions(body: AllowedActionsBody) -> dict:
     if resp.status_code >= 400:
         raise HTTPException(status_code=resp.status_code, detail=resp.text)
     return resp.json()
+
+# ---------------------------------------------------------------------------
+# Project endpoints (proxy to worker)
+# ---------------------------------------------------------------------------
+
+
+class ProjectNameBody(BaseModel):
+    name: str = ""
+
+
+class ProjectAddDocumentBody(BaseModel):
+    project_id: str
+    document: dict
+    filename: str = ""
+
+
+class ProjectRemoveDocumentBody(BaseModel):
+    project_id: str
+    document_id: str
+
+
+class ProjectRenameDocumentBody(BaseModel):
+    project_id: str
+    document_id: str
+    title: str
+
+
+class ProjectAddAssetBody(BaseModel):
+    project_id: str
+    filename: str
+    mime: str = "application/octet-stream"
+    size: int = 0
+
+
+class ProjectRemoveAssetBody(BaseModel):
+    project_id: str
+    asset_id: str
+
+
+class ProjectUpdateMetadataBody(BaseModel):
+    project_id: str
+    metadata: dict
+
+
+class ProjectSetRootBody(BaseModel):
+    project_id: str
+    document_id: str | None = None
+
+
+class ProjectSearchBody(BaseModel):
+    project_id: str
+    query: str
+
+
+@app.get("/api/v1/projects/new")
+async def project_new(name: str = "") -> dict:
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.get(f"{WORKER_BASE_URL}/api/v1/projects/new", params={"name": name})
+    if resp.status_code >= 400:
+        raise HTTPException(status_code=resp.status_code, detail=resp.text)
+    return resp.json()
+
+
+@app.post("/api/v1/projects/open")
+async def project_open(body: ProjectNameBody) -> dict:
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.post(f"{WORKER_BASE_URL}/api/v1/projects/open", json={"name": body.name})
+    if resp.status_code >= 400:
+        raise HTTPException(status_code=resp.status_code, detail=resp.text)
+    return resp.json()
+
+
+@app.post("/api/v1/projects/save")
+async def project_save(body: ProjectNameBody) -> dict:
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.post(f"{WORKER_BASE_URL}/api/v1/projects/save", json={"name": body.name})
+    if resp.status_code >= 400:
+        raise HTTPException(status_code=resp.status_code, detail=resp.text)
+    return resp.json()
+
+
+@app.post("/api/v1/projects/add-document")
+async def project_add_document(body: ProjectAddDocumentBody) -> dict:
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.post(f"{WORKER_BASE_URL}/api/v1/projects/add-document", json=body.model_dump())
+    if resp.status_code >= 400:
+        raise HTTPException(status_code=resp.status_code, detail=resp.text)
+    return resp.json()
+
+
+@app.post("/api/v1/projects/remove-document")
+async def project_remove_document(body: ProjectRemoveDocumentBody) -> dict:
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.post(f"{WORKER_BASE_URL}/api/v1/projects/remove-document", json=body.model_dump())
+    if resp.status_code >= 400:
+        raise HTTPException(status_code=resp.status_code, detail=resp.text)
+    return resp.json()
+
+
+@app.post("/api/v1/projects/rename-document")
+async def project_rename_document(body: ProjectRenameDocumentBody) -> dict:
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.post(f"{WORKER_BASE_URL}/api/v1/projects/rename-document", json=body.model_dump())
+    if resp.status_code >= 400:
+        raise HTTPException(status_code=resp.status_code, detail=resp.text)
+    return resp.json()
+
+
+@app.post("/api/v1/projects/add-asset")
+async def project_add_asset(body: ProjectAddAssetBody) -> dict:
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.post(f"{WORKER_BASE_URL}/api/v1/projects/add-asset", json=body.model_dump())
+    if resp.status_code >= 400:
+        raise HTTPException(status_code=resp.status_code, detail=resp.text)
+    return resp.json()
+
+
+@app.post("/api/v1/projects/remove-asset")
+async def project_remove_asset(body: ProjectRemoveAssetBody) -> dict:
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.post(f"{WORKER_BASE_URL}/api/v1/projects/remove-asset", json=body.model_dump())
+    if resp.status_code >= 400:
+        raise HTTPException(status_code=resp.status_code, detail=resp.text)
+    return resp.json()
+
+
+@app.post("/api/v1/projects/update-metadata")
+async def project_update_metadata(body: ProjectUpdateMetadataBody) -> dict:
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.post(f"{WORKER_BASE_URL}/api/v1/projects/update-metadata", json=body.model_dump())
+    if resp.status_code >= 400:
+        raise HTTPException(status_code=resp.status_code, detail=resp.text)
+    return resp.json()
+
+
+@app.post("/api/v1/projects/set-root")
+async def project_set_root(body: ProjectSetRootBody) -> dict:
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.post(f"{WORKER_BASE_URL}/api/v1/projects/set-root", json=body.model_dump())
+    if resp.status_code >= 400:
+        raise HTTPException(status_code=resp.status_code, detail=resp.text)
+    return resp.json()
+
+
+@app.get("/api/v1/projects/manifest")
+async def project_manifest(project_id: str) -> dict:
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.get(f"{WORKER_BASE_URL}/api/v1/projects/manifest", params={"project_id": project_id})
+    if resp.status_code >= 400:
+        raise HTTPException(status_code=resp.status_code, detail=resp.text)
+    return resp.json()
+
+
+@app.post("/api/v1/projects/search")
+async def project_search(body: ProjectSearchBody) -> dict:
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.post(f"{WORKER_BASE_URL}/api/v1/projects/search", json=body.model_dump())
+    if resp.status_code >= 400:
+        raise HTTPException(status_code=resp.status_code, detail=resp.text)
+    return resp.json()
+
+
+@app.post("/api/v1/projects/build")
+async def project_build(body: ProjectNameBody) -> dict:
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.post(f"{WORKER_BASE_URL}/api/v1/projects/build", json={"name": body.name})
+    if resp.status_code >= 400:
+        raise HTTPException(status_code=resp.status_code, detail=resp.text)
+    return resp.json()

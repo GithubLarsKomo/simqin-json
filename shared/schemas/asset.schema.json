@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SIMQIN Project Asset",
+  "type": "object",
+  "required": ["id", "filename", "mime"],
+  "additionalProperties": true,
+  "properties": {
+    "id": { "type": "string" },
+    "filename": { "type": "string" },
+    "mime": { "type": "string" },
+    "size": { "type": "integer" },
+    "refs": { "type": "array", "items": { "type": "string" } }
+  }
+}

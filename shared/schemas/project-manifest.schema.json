@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SIMQIN Project Manifest",
+  "type": "object",
+  "required": ["schema_version", "project_id", "name", "created", "modified", "documents", "assets"],
+  "additionalProperties": true,
+  "properties": {
+    "schema_version": { "type": "string" },
+    "project_id": { "type": "string" },
+    "name": { "type": "string" },
+    "created": { "type": "string" },
+    "modified": { "type": "string" },
+    "root_document_id": { "type": ["string", "null"] },
+    "documents": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "title"],
+        "properties": {
+          "id": { "type": "string" },
+          "title": { "type": "string" },
+          "filename": { "type": "string" }
+        }
+      }
+    },
+    "assets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "filename", "mime"],
+        "properties": {
+          "id": { "type": "string" },
+          "filename": { "type": "string" },
+          "mime": { "type": "string" },
+          "size": { "type": "integer" },
+          "refs": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "metadata": { "type": "object" }
+  }
+}

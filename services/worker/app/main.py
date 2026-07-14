@@ -12,6 +12,7 @@ from .authoring import AuthoringDoc, AuthoringValidationError
 from .templates import list_templates, get_template, create_document
 from .profiles import list_profiles, get_profile, get_allowed_actions, validate_with_profile
 from .xml_writer import render_document_xml, render_document_json
+from .project import Project, ProjectService, ProjectAsset, build_check, SCHEMA_VERSION
 
 # ---------------------------------------------------------------------------
 # App
@@ -203,3 +204,176 @@ def validate_authoring(req: AuthoringValidateWithProfileRequest) -> dict:
         return {"valid": len(errors) == 0, "errors": errors}
     except Exception as exc:
         return {"valid": False, "errors": [str(exc)]}
+
+
+# ---------------------------------------------------------------------------
+# Project service (singleton)
+# ---------------------------------------------------------------------------
+
+_proj_service = ProjectService()
+
+# ---------------------------------------------------------------------------
+# Pydantic models for project endpoints
+# ---------------------------------------------------------------------------
+
+
+class ProjectCreateRequest(BaseModel):
+    name: str = ""
+
+
+class ProjectAddDocumentRequest(BaseModel):
+    project_id: str
+    document: dict[str, Any]
+    filename: str = ""
+
+
+class ProjectRemoveDocumentRequest(BaseModel):
+    project_id: str
+    document_id: str
+
+
+class ProjectRenameDocumentRequest(BaseModel):
+    project_id: str
+    document_id: str
+    title: str
+
+
+class ProjectAddAssetRequest(BaseModel):
+    project_id: str
+    filename: str
+    mime: str = "application/octet-stream"
+    size: int = 0
+
+
+class ProjectRemoveAssetRequest(BaseModel):
+    project_id: str
+    asset_id: str
+
+
+class ProjectUpdateMetadataRequest(BaseModel):
+    project_id: str
+    metadata: dict[str, Any]
+
+
+class ProjectSetRootRequest(BaseModel):
+    project_id: str
+    document_id: str | None = None
+
+
+class ProjectSearchRequest(BaseModel):
+    project_id: str
+    query: str
+
+
+# ---------------------------------------------------------------------------
+# Project endpoints
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/v1/projects/new")
+def project_new(name: str = "") -> dict:
+    p = _proj_service.create_project(name)
+    return {"ok": True, "project": p.to_dict()}
+
+
+@app.post("/api/v1/projects/open")
+def project_open(req: ProjectCreateRequest) -> dict:
+    p = _proj_service.open_project(req.name)
+    return {"ok": True, "project": p.to_dict()}
+
+
+@app.post("/api/v1/projects/save")
+def project_save(req: ProjectCreateRequest) -> dict:
+    return _proj_service.save_project(req.name)
+
+
+@app.post("/api/v1/projects/add-document")
+def project_add_document(req: ProjectAddDocumentRequest) -> dict:
+    p = _proj_service.get_project(req.project_id)
+    if not p:
+        raise HTTPException(status_code=404, detail="Project not found")
+    try:
+        doc = AuthoringDoc.from_dict(req.document)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    doc_id = p.add_document(doc, filename=req.filename)
+    return {"ok": True, "document_id": doc_id, "project": p.to_dict()}
+
+
+@app.post("/api/v1/projects/remove-document")
+def project_remove_document(req: ProjectRemoveDocumentRequest) -> dict:
+    p = _proj_service.get_project(req.project_id)
+    if not p:
+        raise HTTPException(status_code=404, detail="Project not found")
+    ok = p.remove_document(req.document_id)
+    return {"ok": ok, "project": p.to_dict()}
+
+
+@app.post("/api/v1/projects/rename-document")
+def project_rename_document(req: ProjectRenameDocumentRequest) -> dict:
+    p = _proj_service.get_project(req.project_id)
+    if not p:
+        raise HTTPException(status_code=404, detail="Project not found")
+    ok = p.rename_document(req.document_id, req.title)
+    return {"ok": ok, "project": p.to_dict()}
+
+
+@app.post("/api/v1/projects/add-asset")
+def project_add_asset(req: ProjectAddAssetRequest) -> dict:
+    p = _proj_service.get_project(req.project_id)
+    if not p:
+        raise HTTPException(status_code=404, detail="Project not found")
+    asset = ProjectAsset(filename=req.filename, mime=req.mime, size=req.size)
+    p.add_asset(asset)
+    return {"ok": True, "asset_id": asset.id, "project": p.to_dict()}
+
+
+@app.post("/api/v1/projects/remove-asset")
+def project_remove_asset(req: ProjectRemoveAssetRequest) -> dict:
+    p = _proj_service.get_project(req.project_id)
+    if not p:
+        raise HTTPException(status_code=404, detail="Project not found")
+    ok = p.remove_asset(req.asset_id)
+    return {"ok": ok, "project": p.to_dict()}
+
+
+@app.post("/api/v1/projects/update-metadata")
+def project_update_metadata(req: ProjectUpdateMetadataRequest) -> dict:
+    p = _proj_service.get_project(req.project_id)
+    if not p:
+        raise HTTPException(status_code=404, detail="Project not found")
+    p.update_metadata(req.metadata)
+    return {"ok": True, "project": p.to_dict()}
+
+
+@app.post("/api/v1/projects/set-root")
+def project_set_root(req: ProjectSetRootRequest) -> dict:
+    p = _proj_service.get_project(req.project_id)
+    if not p:
+        raise HTTPException(status_code=404, detail="Project not found")
+    p.set_root_document(req.document_id)
+    return {"ok": True, "project": p.to_dict()}
+
+
+@app.get("/api/v1/projects/manifest")
+def project_manifest(project_id: str) -> dict:
+    p = _proj_service.get_project(project_id)
+    if not p:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return {"ok": True, "manifest": p.manifest()}
+
+
+@app.post("/api/v1/projects/search")
+def project_search(req: ProjectSearchRequest) -> dict:
+    p = _proj_service.get_project(req.project_id)
+    if not p:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return {"ok": True, "results": p.search(req.query)}
+
+
+@app.post("/api/v1/projects/build")
+def project_build(req: ProjectCreateRequest) -> dict:
+    p = _proj_service.get_project(req.name)
+    if not p:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return {"ok": True, "report": build_check(p)}

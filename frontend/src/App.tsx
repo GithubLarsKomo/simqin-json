@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import './style.css';
 import NewDocument from './NewDocument';
+import Workspace from './Workspace';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080';
 
@@ -53,7 +54,7 @@ type ConversionResult = {
 
 type TabId = 'canonical' | 'domain' | 'assets' | 'references' | 'mapping' | 'validation' | 'schema';
 
-type Page = 'converter' | 'new-document';
+type Page = 'converter' | 'new-document' | 'workspace';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -340,11 +341,13 @@ function App() {
           <span className="nav-brand" onClick={() => setPage('converter')} style={{cursor:'pointer'}}>SIMQIN</span>
           <div className="nav-links">
             <button className={`nav-btn ${page==='converter'?'nav-btn-active':''}`} onClick={() => setPage('converter')}>Konvertieren</button>
+            <button className={`nav-btn ${page==='workspace'?'nav-btn-active':''}`} onClick={() => setPage('workspace')}>Workspace</button>
             <button className={`nav-btn ${page==='new-document'?'nav-btn-active':''}`} onClick={() => setPage('new-document')}>Neues Dokument</button>
           </div>
         </div>
       </nav>
       {page==='converter' && <ConverterPage />}
+      {page==='workspace' && <Workspace onNavigateHome={() => setPage('converter')} />}
       {page==='new-document' && <NewDocument onNavigateHome={() => setPage('converter')} />}
     </>
   );

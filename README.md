@@ -119,15 +119,54 @@ make down      # Docker Compose stoppen
 make lint      # Python-Syntax-Prüfung
 ```
 
-## Test Suite
+## Project Workspace (Phase 4)
+
+Die Plattform wurde um ein **Project Workspace** erweitert, das die Verwaltung mehrerer XML/DITA-Dokumente in einem Projekt ermöglicht.
+
+### Project Model
+
+- **Projekt** — Name, ID, Erstellungs-/Änderungsdatum, Sammlung von Dokumenten und Assets
+- **Document** — Ein `AuthoringDoc` innerhalb eines Projekts
+- **Asset** — Datei-Referenz (image, svg, pdf, csv, xlsx, video) mit Metadaten (id, filename, mime, size, refs)
+- **Manifest** — Leichtgewichtige Projekt-Zusammenfassung (schema-versioniert)
+
+### API Endpoints
+
+| Methode | Pfad | Beschreibung |
+|:--------|:-----|:-------------|
+| `GET` | `/api/v1/projects/new` | Neues leeres Projekt anlegen |
+| `POST` | `/api/v1/projects/open` | Projekt öffnen / neu laden |
+| `POST` | `/api/v1/projects/save` | Projekt-Manifest speichern |
+| `POST` | `/api/v1/projects/add-document` | Dokument hinzufügen |
+| `POST` | `/api/v1/projects/remove-document` | Dokument entfernen |
+| `POST` | `/api/v1/projects/rename-document` | Dokument umbenennen |
+| `POST` | `/api/v1/projects/add-asset` | Asset hinzufügen |
+| `POST` | `/api/v1/projects/remove-asset` | Asset entfernen |
+| `POST` | `/api/v1/projects/update-metadata` | Metadaten aktualisieren |
+| `POST` | `/api/v1/projects/set-root` | Root-DITA-Map setzen |
+| `GET` | `/api/v1/projects/manifest` | Projekt-Manifest abrufen |
+| `POST` | `/api/v1/projects/search` | Volltext-Suche (Titel, Absätze, IDs, TopicRefs, Assets) |
+| `POST` | `/api/v1/projects/build` | Build-Report (Dokument-/Asset-Zählung, Prüfung) |
+
+### Frontend
+
+Der **Workspace**-Tab zeigt eine Explorer-Seitenleiste mit Projektdokumenten und Assets. Geöffnete Dokumente erscheinen als Tabs.
+
+### Test Suite
 
 ```bash
 cd services/worker && pytest tests/ -v
-# → 50 Tests, alle grün
+# → 129 Tests, alle grün
 ```
 
 Test-Abdeckung:
-- XML-Parsing (valid, invalid, empty)
+- Project creation + serialization (roundtrip, JSON)
+- Manifest generation + schema validation
+- Document add/remove/rename
+- Asset add/remove
+- Search (title, paragraph, topicref)
+- Build check (empty, populated)
+- JSON Schema validation (project, manifest)
 - DTD-Validierung (valid, invalid)
 - XXE-Sicherheit
 - Canonical JSON (attributes, text, namespaces)
