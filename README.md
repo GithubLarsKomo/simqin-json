@@ -187,7 +187,7 @@ Die **BuildView**-Komponente zeigt Build-Reports mit Statistiken, Fehlern und Wa
 
 ```bash
 cd services/worker && pytest tests/ -v
-# → 147 Tests, alle grün
+# → 179 Tests, alle grün
 ```
 
 ### Project Model
@@ -243,3 +243,59 @@ Test-Abdeckung:
 - Mapping Validation (invalid YAML, missing rules, missing match, invalid type)
 - Table Extraction (DITA tgroup, simpletable)
 - Domain Schema Validation
+
+
+## Object-Oriented Content Model (Phase 6)
+
+Phase 6 fuhrt das objektorientierte Content-Modell fur IFU-Familien ein.
+
+### Content Object Library
+
+- **ContentObject** - Versionierter Inhaltsbaustein (Template, Section, etc.)
+- **ContentObjectRevision** - Version mit Slots, Composition, Content
+- **ContentSlot** - Typisierte Austauschstelle (term, number, quantity, analyte, etc.)
+- **CompositionBinding** - Rekursive Einbindung anderer ContentObjects
+- **ApplicabilityRule** - Deklarative Sichtbarkeitsregel (equals, in, and, or, etc.)
+- **ContentBinding** - Vererbungsmodus (derived, free, proposed)
+
+### Single Inheritance
+
+Jedes ContentObject hat maximal eine base_template_id. Die Validierung erkennt:
+Zyklen, fehlende Basen, Selbstreferenzen, ubermaSSige Tiefe (>20).
+
+### Configuration Catalog
+
+ConfigurationParameter, ConfigurationValue und ConfigurationCatalog fur
+genehmigte Konfigurationsparameter (string, boolean, integer, decimal, enum).
+
+### Translation Domain Model
+
+TranslationVariant, TranslationSegment und validate_segment_count fur die
+1:1-Segment-Beziehung zwischen Quell- und Zielsprache - keine LLM-Aufrufe.
+
+### Structure Migration
+
+Vier-Augen-Prinzip: approve_migration und reject_migration erzwingen
+unterschiedliche Personen und Pflichtkommentare bei Ablehnungen.
+
+### Alignment
+
+Baseline-Alignment (Needleman-Wunsch-inspiriert) mit Token-Ebene, konfigurierbaren
+Penalties und Slot-Kandidaten-Extraktion.
+
+### Neue Module
+
+- content_objects.py - ContentObject, Revision, Slot, Binding, Composition, Merge
+- configuration.py - ConfigurationParameter, Value, Catalog
+- translations.py - TranslationVariant, Segment, Validierung
+- structure_migration.py - SentenceStructureMigration, approve/reject
+- alignment.py - Needleman-Wunsch-Baseline-Alignment
+
+### Neue Schemas
+
+- content-object.schema.json
+
+### Neue Tests
+
+179 Tests gesamt, 32 spezifisch fur Phase 6 (Vererbung, Komposition, Slots,
+Konfiguration, Ubersetzung, Migration, Alignment, IFU-Release-Modell).

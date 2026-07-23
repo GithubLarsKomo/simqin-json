@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SIMQIN Content Object",
+  "type": "object",
+  "required": ["id", "type", "status", "current_revision", "created_at"],
+  "additionalProperties": true,
+  "properties": {
+    "id": { "type": "string" },
+    "type": { "type": "string" },
+    "section_type": { "type": "string" },
+    "origin_product_id": { "type": "string" },
+    "canonical_language": { "type": "string" },
+    "status": { "type": "string" },
+    "current_revision": { "type": "integer" },
+    "base_template_id": { "type": ["string", "null"] },
+    "created_at": { "type": "string" },
+    "created_by": { "type": "string" },
+    "metadata": { "type": "object" },
+    "revisions": { "type": "array", "items": { "$ref": "#/$defs/revision" } },
+    "binding": { "$ref": "#/$defs/binding" },
+    "aliases": { "type": "array" }
+  },
+  "$defs": {
+    "revision": {
+      "type": "object",
+      "properties": {
+        "object_id": { "type": "string" },
+        "revision": { "type": "integer" },
+        "canonical_content": { "type": "string" },
+        "slots": { "type": "array" },
+        "composed_objects": { "type": "array" },
+        "approval_status": { "type": "string" }
+      }
+    },
+    "binding": {
+      "type": "object",
+      "properties": {
+        "base_template_id": { "type": "string" },
+        "mode": { "type": "string" },
+        "sync_policy": { "type": "string" }
+      }
+    }
+  }
+}

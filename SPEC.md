@@ -207,13 +207,6 @@ Aufgaben:
 
 Das Domain JSON wird wahlweise über ein YAML-Mapping-Profil gesteuert (siehe `shared/mappings/simqin-default.yaml`). Assets (Bilder, Figures), Referenzen (XRefs, Links) und DITA-Map-Strukturen werden automatisch erkannt und angereichert.
 
-### 8.1 JSON Schema Endpoints
-
-Die Plattform stellt zwei Schema-Endpoints bereit:
-
-- `GET /api/v1/schemas/canonical` — Schema für Canonical JSON
-- `GET /api/v1/schemas/domain` — Schema für Domain JSON (inkl. assets, references, dita_map)
-
 ## 9. Security Anforderungen
 
 Pflicht:
@@ -236,3 +229,108 @@ Pflicht:
 - Domain JSON enthält Titel und Sections.
 - UI und API liefern konsistente Ergebnisse.
 - Docker Compose startet Frontend und API reproduzierbar.
+
+
+## Optionales Langfristziel - Objektorientierte IFU-Familien und LLM-gestuetzte Uebersetzung
+
+### Uebersicht
+
+Dieser Abschnitt dokumentiert die Architektur fuer die zukuenftige Unterstuetzung
+regulatorischer IFU-Dokumentationsfamilien (z.B. ELISA-Produkte), bei denen
+wiederverwendbare Content Objects die Grundlage bilden.
+
+### Kernkonzept
+
+- **ContentObject** - Ein atomarer, versionierter Inhaltsbaustein (Template, Section, Paragraph, Warnhinweis)
+- **Single Inheritance** - Jedes ContentObject hat maximal eine Basisvorlage
+- **Recursive Composition** - ContentObjects koennen rekursiv andere ContentObjects komponieren
+- **Typed Slots** - Definierte Austauschstellen fuer Terme, Zahlen, Einheiten, Analyten etc.
+- **Configuration Catalog** - Gepruefte Konfigurationsparameter fuer steuernde Bedingungen
+
+### Single Inheritance
+
+- Jedes ContentObject hat null oder eine base_template_id
+- Mehrfachvererbung ist verboten
+- Maximale Vererbungstiefe: 20 (konfigurierbar)
+- Validierung erkennt: Zyklen, fehlende Basen, Selbstreferenzen, uebermaessige Tiefe
+
+### Recursive Composition
+
+- ContentObjects koennen andere ContentObjects ueber CompositionBinding einbinden
+- Unterstuetzte Platzierungen: before:<block-id>, after:<block-id>, first, last
+- Deterministic ordering ueber order-Feld
+- Validierung erkennt: Kompositionszyklen, Mixed-Zyklen, fehlende Child-Objekte, ungueltige Anker
+
+### Standard Single Inclusion
+
+- Gleiches ContentObject erscheint standardmaessig nur einmal pro aufgeloestem IFU
+- MultiplicityRule mit Mode single/multiple erlaubt Ausnahmen
+- Doppelte Inclusion ohne genehmigte Regel -> blockierender Validierungsfehler
+
+### Binding Modes
+
+- **derived** - Folgt genehmigter Basisvorlage, erhaelt Update-Vorschlaege
+- **free** - Weicht bewusst ab, bleibt logisch verknuepft, wird nie automatisch ueberschrieben
+- **proposed** - Automatisch erkannter Kandidat, nicht fuer Produktion freigegeben
+
+### Typed Slots
+
+Unterstuetzte Typen:
+term, phrase, sentence-fragment, sentence, number, quantity, unit, range, percentage,
+temperature, duration, sample-type, analyte, product-name, regulatory-market, conditional-fragment
+
+Jeder Slot hat: ID, Typ, Required-Flag, Default-Wert, allowed_values, allowed_units.
+
+### Declarative Conditions
+
+- Erlaubte Operatoren: equals, not_equals, in, not_in, exists, and, or
+- Kein Python, kein JavaScript, keine API-Calls, keine Laufzeit-LLM-Entscheidungen
+- Steuern: Slot-Werte, Alternativ-Fragmente, komplette Block-Inclusion
+- Variant Group Modes: zero_or_more, zero_or_one, exactly_one
+
+### Configuration Parameter Catalog
+
+- Parameter werden vor Nutzung erstellt und freigegeben
+- Typen: string, boolean, integer, decimal, enum, string-list
+- Werte werden in IFU Working Version auf Parameter-Revision gepinnt
+
+### Sentence Segments
+
+- Stabile Satz- und Segment-IDs
+- Segmenttypen: sentence, heading, list-item, table-cell, caption, label
+- immutable_boundary = true fuer Saetze
+- 1:1-Beziehung zwischen Quell- und Uebersetzungssegmenten
+
+### Structure Migration
+
+- Vier-Augen-Prinzip: Ersteller und Genehmiger muessen verschieden sein
+- Migrationstypen: split, merge, resegment
+- Status: draft -> pending_approval -> approved/rejected
+- Pflichtkommentar bei rejection, optional bei approval
+
+### Translation Domain Model
+
+- Kein LLM-Aufruf in dieser Phase, nur Datenmodell
+- TranslationVariant mit ID, ContentObject, Zielsprache, Status, Segment-Uebersetzungen
+- TranslationSegment mit 1:1-Beziehung zum Source-Segment
+- Mehrere genehmigte Varianten pro Sprache erlaubt
+
+### Content Merge
+
+- Mehrere ContentObjects koennen in ein kanonisches Objekt gemergt werden
+- Alte IDs bleiben als Aliase erhalten
+- Historische Releases loesen weiterhin alte IDs auf
+
+### Automatic Template Candidate Detection
+
+- Nur Baseline-Detektor auf Basis von Token-Aehnlichkeit und Sequence-Matching
+- Keine ML/LLM-Abhaengigkeiten
+- Niemals automatische Freigabe oder Merge
+- SuggestedTemplateCandidate mit Status proposed
+
+### Known Limitations
+
+- Der Baseline-Alignment-Algorithmus (Needleman-Wunsch-artig) verwendet nur Token-Oberflaechengleichheit
+- Keine Lemmatisierung, keine Synonyme, kein n:m-Phrase-Matching
+- Produktive LLM-Uebersetzung ist explizit NICHT Teil dieser Phase
+- Keine Datenbank-Persistenz in dieser Phase
