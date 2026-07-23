@@ -119,9 +119,76 @@ make down      # Docker Compose stoppen
 make lint      # Python-Syntax-Prüfung
 ```
 
-## Project Workspace (Phase 4)
+## Publishing Engine (Phase 5)
 
-Die Plattform wurde um ein **Project Workspace** erweitert, das die Verwaltung mehrerer XML/DITA-Dokumente in einem Projekt ermöglicht.
+Die Publishing Engine ermöglicht Cross-Document-Analyse, Referenz-Auflösung und Build-Reports.
+
+### Dependency Graph
+
+Der **BuildGraph** erstellt einen gerichteten Abhängigkeitsgraphen aus einem Project mit Knoten für Dokumente, TopicRefs, Assets, Keys und Referenzen.
+
+Erkannte Probleme:
+- **Duplicate IDs** — gleiche ID in mehreren Elementen
+- **Duplicate Keys** — gleicher Key in mehreren TopicRefs
+- **Orphan Documents** — Dokumente ohne Referenzen
+- **Orphan Assets** — Projekt-Assets ohne Verwendung
+- **Circular References** — zyklische Abhängigkeiten (DFS-basiert)
+
+### Project Index
+
+Der **ProjectIndex** indiziert Titel, IDs, Keys, Absätze, Sections, Assets, TopicRefs und Metadaten. Durchsuchbar via `POST /api/v1/projects/index`.
+
+### Reference Resolver
+
+Der **ReferenceResolver** löst auf:
+- `resolve_href(href)` — Dokument-Pfade, IDs, externe URLs
+- `resolve_keyref(keyref)` — DITA-Key-Referenzen
+- `resolve_conref(conref)` — (vorbereitet, noch nicht implementiert)
+- `resolve_topicref(href)` — TopicRef-Auflösung
+
+### Validation Engine
+
+Vier Level: `INFO`, `WARNING`, `ERROR`, `FATAL`. Prüft:
+- Duplikate (IDs, Keys)
+- Broken Links
+- Fehlende Assets
+- Ungültige Referenzen
+- Profilverletzungen
+
+### Build Report
+
+`POST /api/v1/projects/publish` erzeugt einen vollständigen Build-Report:
+- Statistiken (Knoten, Kanten, Dokumente, TopicRefs, Assets)
+- Aufgelöste Referenzen
+- Ungenutzte Assets
+- Verwaiste Dokumente
+- Warnungen und Fehler
+
+### Package Manifest
+
+Das **PackageManifest** fasst alle Dokumente und Assets mit Versionsinformationen zusammen — Grundlage für spätere ZIP-Paketierung.
+
+### API Endpoints (Phase 5)
+
+| Methode | Pfad | Beschreibung |
+|:--------|:-----|:-------------|
+| `POST` | `/api/v1/projects/graph` | Abhängigkeitsgraph + Diagnose |
+| `POST` | `/api/v1/projects/index` | Durchsuchbarer Projekt-Index |
+| `POST` | `/api/v1/projects/resolve` | Referenz-Auflösung |
+| `POST` | `/api/v1/projects/validate` | Vollständige Projekt-Validierung |
+| `POST` | `/api/v1/projects/publish` | Build-Report (Publishing Pipeline) |
+| `POST` | `/api/v1/projects/package-manifest` | Package-Manifest erzeugen |
+
+### Frontend
+
+Die **BuildView**-Komponente zeigt Build-Reports mit Statistiken, Fehlern und Warnungen an. Klickbare Warnungen navigieren zum betroffenen Dokument.
+
+### Test Suite
+
+```bash
+cd services/worker && pytest tests/ -v
+# → 147 Tests, alle grün
+```
 
 ### Project Model
 

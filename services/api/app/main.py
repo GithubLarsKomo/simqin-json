@@ -400,3 +400,61 @@ async def project_build(body: ProjectNameBody) -> dict:
     if resp.status_code >= 400:
         raise HTTPException(status_code=resp.status_code, detail=resp.text)
     return resp.json()
+
+# ---------------------------------------------------------------------------
+# Publishing Engine endpoints (proxy to worker)
+# ---------------------------------------------------------------------------
+
+
+@app.post("/api/v1/projects/graph")
+async def project_graph(body: ProjectNameBody) -> dict:
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.post(f"{WORKER_BASE_URL}/api/v1/projects/graph", json={"name": body.name})
+    if resp.status_code >= 400:
+        raise HTTPException(status_code=resp.status_code, detail=resp.text)
+    return resp.json()
+
+
+@app.post("/api/v1/projects/index")
+async def project_index(body: ProjectNameBody) -> dict:
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.post(f"{WORKER_BASE_URL}/api/v1/projects/index", json={"name": body.name})
+    if resp.status_code >= 400:
+        raise HTTPException(status_code=resp.status_code, detail=resp.text)
+    return resp.json()
+
+
+@app.post("/api/v1/projects/resolve")
+async def project_resolve(body: ProjectNameBody) -> dict:
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.post(f"{WORKER_BASE_URL}/api/v1/projects/resolve", json={"name": body.name})
+    if resp.status_code >= 400:
+        raise HTTPException(status_code=resp.status_code, detail=resp.text)
+    return resp.json()
+
+
+@app.post("/api/v1/projects/validate")
+async def project_validate(body: ProjectNameBody) -> dict:
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.post(f"{WORKER_BASE_URL}/api/v1/projects/validate", json={"name": body.name})
+    if resp.status_code >= 400:
+        raise HTTPException(status_code=resp.status_code, detail=resp.text)
+    return resp.json()
+
+
+@app.post("/api/v1/projects/publish")
+async def project_publish(body: ProjectNameBody) -> dict:
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.post(f"{WORKER_BASE_URL}/api/v1/projects/publish", json={"name": body.name})
+    if resp.status_code >= 400:
+        raise HTTPException(status_code=resp.status_code, detail=resp.text)
+    return resp.json()
+
+
+@app.post("/api/v1/projects/package-manifest")
+async def project_package_manifest(body: ProjectNameBody) -> dict:
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.post(f"{WORKER_BASE_URL}/api/v1/projects/package-manifest", json={"name": body.name})
+    if resp.status_code >= 400:
+        raise HTTPException(status_code=resp.status_code, detail=resp.text)
+    return resp.json()

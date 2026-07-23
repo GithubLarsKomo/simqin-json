@@ -13,6 +13,11 @@ from .templates import list_templates, get_template, create_document
 from .profiles import list_profiles, get_profile, get_allowed_actions, validate_with_profile
 from .xml_writer import render_document_xml, render_document_json
 from .project import Project, ProjectService, ProjectAsset, build_check, SCHEMA_VERSION
+from .build_graph import BuildGraph
+from .project_index import ProjectIndex
+from .reference_resolver import ReferenceResolver
+from .validation import validate_project
+from .publish import publish_project, PackageManifest
 
 # ---------------------------------------------------------------------------
 # App
@@ -377,3 +382,64 @@ def project_build(req: ProjectCreateRequest) -> dict:
     if not p:
         raise HTTPException(status_code=404, detail="Project not found")
     return {"ok": True, "report": build_check(p)}
+
+
+# ---------------------------------------------------------------------------
+# Phase 5 — Publishing Engine endpoints
+# ---------------------------------------------------------------------------
+
+
+@app.post("/api/v1/projects/graph")
+def project_graph(req: ProjectCreateRequest) -> dict:
+    p = _proj_service.get_project(req.name)
+    if not p:
+        raise HTTPException(status_code=404, detail="Project not found")
+    graph = BuildGraph.from_project(p)
+    report = graph.full_report(p)
+    return {"ok": True, "report": report}
+
+
+@app.post("/api/v1/projects/index")
+def project_index(req: ProjectCreateRequest) -> dict:
+    p = _proj_service.get_project(req.name)
+    if not p:
+        raise HTTPException(status_code=404, detail="Project not found")
+    idx = ProjectIndex(p)
+    return {"ok": True, "entries": idx.all_entries(), "count": idx.count()}
+
+
+@app.post("/api/v1/projects/resolve")
+def project_resolve(req: ProjectCreateRequest) -> dict:
+    p = _proj_service.get_project(req.name)
+    if not p:
+        raise HTTPException(status_code=404, detail="Project not found")
+    resolver = ReferenceResolver(p)
+    refs = resolver.resolve_all()
+    return {"ok": True, "references": refs}
+
+
+@app.post("/api/v1/projects/validate")
+def project_validate(req: ProjectCreateRequest) -> dict:
+    p = _proj_service.get_project(req.name)
+    if not p:
+        raise HTTPException(status_code=404, detail="Project not found")
+    result = validate_project(p)
+    return {"ok": True, **result.to_dict()}
+
+
+@app.post("/api/v1/projects/publish")
+def project_publish(req: ProjectCreateRequest) -> dict:
+    p = _proj_service.get_project(req.name)
+    if not p:
+        raise HTTPException(status_code=404, detail="Project not found")
+    result = publish_project(p)
+    return {"ok": True, **result.to_dict()}
+
+
+@app.post("/api/v1/projects/package-manifest")
+def project_package_manifest(req: ProjectCreateRequest) -> dict:
+    p = _proj_service.get_project(req.name)
+    if not p:
+        raise HTTPException(status_code=404, detail="Project not found")
+    manifest = PackageManifest.from_project(p)
+    return {"ok": True, "manifest": manifest.to_dict()}
