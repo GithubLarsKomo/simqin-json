@@ -11,7 +11,7 @@ from app.content_objects import (
 )
 from app.configuration import ConfigurationParameter, ConfigurationCatalog, ConfigurationValue
 from app.translations import TranslationVariant, TranslationSegment, validate_segment_count
-from app.structure_migration import SentenceStructureMigration, approve_migration, reject_migration
+from app.structure_migration import SentenceStructureMigration, approve_migration, reject_migration, request_migration_changes, submit_migration
 from app.alignment import align_texts
 
 
@@ -230,13 +230,18 @@ def test_approve_migration_requires_different_person():
         pass
 
 
-def test_approve_migration_requires_comment():
+def test_approve_migration_without_comment_succeeds():
     m = SentenceStructureMigration(object_id="obj-1", status="pending_approval", created_by="alice")
-    try:
-        approve_migration(m, "bob", "")
-        assert False, "Expected ValueError"
-    except ValueError:
-        pass
+    approve_migration(m, "bob", "")
+    assert m.status == "approved"
+    assert m.approved_by == "bob"
+
+
+def test_approve_migration_with_comment_succeeds():
+    m = SentenceStructureMigration(object_id="obj-1", status="pending_approval", created_by="alice")
+    approve_migration(m, "bob", "Looks good")
+    assert m.status == "approved"
+    assert m.decision_comment == "Looks good"
 
 
 def test_reject_migration_requires_comment():
@@ -258,7 +263,59 @@ def test_reject_migration():
 def test_self_approval_rejected():
     m = SentenceStructureMigration(object_id="obj-1", status="pending_approval", created_by="alice")
     try:
-        reject_migration(m, "alice", "Not allowed")
+        approve_migration(m, "alice", "ok")
+        assert False, "Expected ValueError"
+    except ValueError:
+        pass
+
+
+def test_self_rejection_rejected():
+    m = SentenceStructureMigration(object_id="obj-1", status="pending_approval", created_by="alice")
+    try:
+        reject_migration(m, "alice", "Not good")
+        assert False, "Expected ValueError"
+    except ValueError:
+        pass
+
+
+def test_self_change_request_rejected():
+    m = SentenceStructureMigration(object_id="obj-1", status="pending_approval", created_by="alice")
+    try:
+        request_migration_changes(m, "alice", "Fix this")
+        assert False, "Expected ValueError"
+    except ValueError:
+        pass
+
+
+def test_request_changes_requires_comment():
+    m = SentenceStructureMigration(object_id="obj-1", status="pending_approval", created_by="alice")
+    try:
+        request_migration_changes(m, "bob", "")
+        assert False, "Expected ValueError"
+    except ValueError:
+        pass
+
+
+def test_request_changes_succeeds():
+    m = SentenceStructureMigration(object_id="obj-1", status="pending_approval", created_by="alice")
+    request_migration_changes(m, "bob", "Please adjust the segmentation")
+    assert m.status == "changes_requested"
+
+
+def test_approve_from_draft_fails():
+    m = SentenceStructureMigration(object_id="obj-1", status="draft", created_by="alice")
+    try:
+        approve_migration(m, "bob", "ok")
+        assert False, "Expected ValueError"
+    except ValueError:
+        pass
+
+
+def test_approved_migration_cannot_be_approved_again():
+    m = SentenceStructureMigration(object_id="obj-1", status="pending_approval", created_by="alice")
+    approve_migration(m, "bob", "ok")
+    try:
+        approve_migration(m, "carol", "again")
         assert False, "Expected ValueError"
     except ValueError:
         pass

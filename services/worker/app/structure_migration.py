@@ -18,6 +18,11 @@ def _new_id() -> str:
 MIGRATION_STATUSES = {"draft", "pending_approval", "approved", "rejected", "changes_requested"}
 MIGRATION_TYPES = {"split", "merge", "resegment"}
 
+_VALID_TRANSITIONS = {
+    "draft": {"pending_approval"},
+    "pending_approval": {"approved", "rejected", "changes_requested"},
+}
+
 
 class SentenceStructureMigration:
     """A proposed change to sentence segment boundaries."""
@@ -92,31 +97,55 @@ class SentenceStructureMigration:
         )
 
 
-def approve_migration(migration: SentenceStructureMigration, approver: str, comment: str) -> None:
-    """Approve or reject a migration under four-eyes principle."""
-    if migration.created_by == approver:
-        raise ValueError("Creator may not approve their own migration")
+def _check_self_approval(migration: SentenceStructureMigration, actor: str) -> None:
+    if migration.created_by == actor:
+        raise ValueError("Creator may not approve, reject or request changes on their own migration")
 
-    if migration.status not in ("pending_approval", "draft"):
-        raise ValueError(f"Cannot approve migration in status {migration.status}")
 
-    if comment.strip():
-        migration.decision_comment = comment
-        migration.approved_by = approver
-        migration.approved_at = _now()
-        migration.status = "approved"
-    else:
-        raise ValueError("Comment is required for rejection")
-        migration.status = "rejected"
+def _check_transition(migration: SentenceStructureMigration, target: str) -> None:
+    allowed = _VALID_TRANSITIONS.get(migration.status, set())
+    if target not in allowed:
+        raise ValueError(
+            f"Cannot transition from {migration.status!r} to {target!r}. "
+            f"Allowed targets from {migration.status!r}: {sorted(allowed)}"
+        )
+
+
+def submit_migration(migration: SentenceStructureMigration) -> None:
+    """Submit a draft migration for approval."""
+    _check_transition(migration, "pending_approval")
+    migration.status = "pending_approval"
+
+
+def approve_migration(migration: SentenceStructureMigration, approver: str, comment: str = "") -> None:
+    """Approve a migration. Comment is optional. Creator may not approve."""
+    _check_self_approval(migration, approver)
+    _check_transition(migration, "approved")
+    migration.decision_comment = comment
+    migration.approved_by = approver
+    migration.approved_at = _now()
+    migration.status = "approved"
 
 
 def reject_migration(migration: SentenceStructureMigration, approver: str, comment: str) -> None:
-    """Reject a migration — requires a comment."""
-    if migration.created_by == approver:
-        raise ValueError("Creator may not reject their own migration")
+    """Reject a migration. Non-empty comment required. Creator may not reject."""
+    _check_self_approval(migration, approver)
+    _check_transition(migration, "rejected")
     if not comment.strip():
         raise ValueError("Rejection comment is required")
     migration.decision_comment = comment
     migration.approved_by = approver
     migration.approved_at = _now()
     migration.status = "rejected"
+
+
+def request_migration_changes(migration: SentenceStructureMigration, requester: str, comment: str) -> None:
+    """Request changes to a migration. Non-empty comment required. Creator may not request changes."""
+    _check_self_approval(migration, requester)
+    _check_transition(migration, "changes_requested")
+    if not comment.strip():
+        raise ValueError("Changes-requested comment is required")
+    migration.decision_comment = comment
+    migration.approved_by = requester
+    migration.approved_at = _now()
+    migration.status = "changes_requested"
