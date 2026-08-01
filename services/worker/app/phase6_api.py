@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
@@ -32,9 +32,9 @@ class ContentPayload(BaseModel):
 class ResolvePayload(ContentPayload):
     root_object_ids: list[str]
     aliases: dict[str, str] = Field(default_factory=dict)
-    revision_mode: str = "working"
+    revision_mode: Literal["pinned", "working", "preview"] = "working"
     multiplicity_rules: list[dict[str, Any]] = Field(default_factory=list)
-    max_depth: int = 20
+    max_depth: int = Field(default=20, ge=1, le=100)
 
 
 class TranslationValidatePayload(BaseModel):
@@ -49,11 +49,16 @@ class ReleaseVerifyPayload(BaseModel):
 
 def _objects(rows: list[dict[str, Any]]) -> dict[str, ContentObject]:
     parsed: dict[str, ContentObject] = {}
-    for row in rows:
-        obj = ContentObject.from_dict(row)
-        if obj.id in parsed:
-            raise HTTPException(status_code=400, detail=f"Duplicate ContentObject id {obj.id}")
-        parsed[obj.id] = obj
+    try:
+        for row in rows:
+            obj = ContentObject.from_dict(row)
+            if obj.id in parsed:
+                raise HTTPException(status_code=400, detail=f"Duplicate ContentObject id {obj.id}")
+            parsed[obj.id] = obj
+    except HTTPException:
+        raise
+    except (TypeError, ValueError, KeyError) as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid ContentObject payload: {exc}") from exc
     return parsed
 
 
@@ -92,29 +97,35 @@ def content_validate(payload: ContentPayload) -> dict[str, Any]:
 @router.post("/content/resolve")
 def content_resolve(payload: ResolvePayload) -> dict[str, Any]:
     objects = _objects(payload.objects)
-    rules = [MultiplicityRule.from_dict(row) for row in payload.multiplicity_rules]
-    tree = resolve_content_tree(
-        root_object_ids=payload.root_object_ids,
-        objects=objects,
-        pinned_revisions=payload.pinned_revisions,
-        config_values=payload.slot_values,
-        aliases=payload.aliases,
-        max_depth=payload.max_depth,
-        revision_mode=payload.revision_mode,
-        multiplicity_rules=rules,
-    )
+    try:
+        rules = [MultiplicityRule.from_dict(row) for row in payload.multiplicity_rules]
+        tree = resolve_content_tree(
+            root_object_ids=payload.root_object_ids,
+            objects=objects,
+            pinned_revisions=payload.pinned_revisions,
+            config_values=payload.slot_values,
+            aliases=payload.aliases,
+            max_depth=payload.max_depth,
+            revision_mode=payload.revision_mode,
+            multiplicity_rules=rules,
+        )
+    except (TypeError, ValueError, KeyError) as exc:
+        raise HTTPException(status_code=400, detail=f"Resolution request rejected: {exc}") from exc
     return tree.to_dict()
 
 
 @router.post("/translations/validate")
 def translation_validate(payload: TranslationValidatePayload) -> dict[str, Any]:
-    variant = TranslationVariant.from_dict(payload.variant)
-    segments = [ContentSegment.from_dict(row) for row in payload.source_segments]
-    findings = validate_translation_variant(
-        variant,
-        segments,
-        source_revision_status=payload.source_revision_status,
-    )
+    try:
+        variant = TranslationVariant.from_dict(payload.variant)
+        segments = [ContentSegment.from_dict(row) for row in payload.source_segments]
+        findings = validate_translation_variant(
+            variant,
+            segments,
+            source_revision_status=payload.source_revision_status,
+        )
+    except (TypeError, ValueError, KeyError) as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid translation payload: {exc}") from exc
     return {
         "valid": len(findings) == 0,
         "findings": [
