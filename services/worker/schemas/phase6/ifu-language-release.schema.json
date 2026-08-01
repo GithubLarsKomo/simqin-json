@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://simqin.local/schemas/phase6/ifu-language-release.schema.json",
+  "title": "IFULanguageReleaseSnapshot",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["release_id", "product_id", "language", "version", "content_bindings", "configuration_snapshot", "resolved_blocks", "provenance", "release_checksum"],
+  "properties": {
+    "release_id": {"type": "string", "minLength": 1},
+    "product_id": {"type": "string", "minLength": 1},
+    "language": {"type": "string", "minLength": 2},
+    "version": {"type": "integer", "minimum": 1},
+    "source_release_id": {"type": "string"},
+    "content_bindings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["object_id", "revision"],
+        "properties": {
+          "object_id": {"type": "string", "minLength": 1},
+          "revision": {"type": "integer", "minimum": 1}
+        }
+      }
+    },
+    "translation_bindings": {"type": "array", "items": {"type": "object"}},
+    "configuration_snapshot": {"type": "object"},
+    "resolved_blocks": {"type": "array", "items": {"type": "object"}},
+    "ruleset_revision": {"type": "string"},
+    "terminology_profile_revision": {"type": "string"},
+    "provenance": {"type": "object"},
+    "created_at": {"type": "string"},
+    "created_by": {"type": "string"},
+    "release_checksum": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}
