@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://simqin.local/schemas/phase6/resolved-content-tree.schema.json",
+  "title": "ResolvedContentTree",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["blocks", "provenance", "config_hash", "graph_checksum", "checksum", "findings"],
+  "properties": {
+    "blocks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["block_id", "source_object_id", "source_revision", "rendered_content"],
+        "properties": {
+          "block_id": {"type": "string", "minLength": 1},
+          "source_object_id": {"type": "string", "minLength": 1},
+          "source_revision": {"type": "integer", "minimum": 1},
+          "rendered_content": {"type": "string"},
+          "source_template_content": {"type": "string"},
+          "block_type": {"type": "string"},
+          "slot_values": {"type": "object"},
+          "inheritance_path": {"type": "array", "items": {"type": "string"}},
+          "composition_path": {"type": "array", "items": {"type": "string"}}
+        }
+      }
+    },
+    "provenance": {"type": "object"},
+    "translation_selections": {"type": "array"},
+    "config_hash": {"type": "string"},
+    "graph_checksum": {"type": "string"},
+    "checksum": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "findings": {"type": "array", "items": {"type": "object"}},
+    "warnings": {"type": "array", "items": {"type": "string"}},
+    "errors": {"type": "array", "items": {"type": "string"}}
+  }
+}
