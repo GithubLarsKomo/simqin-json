@@ -6,10 +6,11 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .content_build_graph import build_content_graph
-from .content_objects import ContentObject, SLOT_TYPES
+from .content_objects import ContentObject
 from .content_segment import ContentSegment, validate_segments
 from .slot_validation import validate_slot_definition, validate_slot_value
-from .strict_translations import StrictTranslationVariant, validate_translation_variant
+from .translation_validation import validate_translation_variant
+from .translations import TranslationVariant
 
 
 @dataclass(frozen=True)
@@ -48,7 +49,7 @@ class Phase6ValidationResult:
     def to_dict(self) -> dict[str, Any]:
         ordered = sorted(
             self.issues,
-            key=lambda issue: (issue.level, issue.code, issue.object_id, issue.revision, issue.path),
+            key=lambda issue: (issue.code, issue.object_id, issue.revision, issue.path, issue.message),
         )
         return {
             "valid": self.valid,
@@ -70,12 +71,31 @@ def _add_messages(
         result.add(Phase6ValidationIssue("ERROR", code, message, object_id, revision))
 
 
+def _add_findings(
+    result: Phase6ValidationResult,
+    findings: list[Any],
+    object_id: str,
+    revision: int,
+) -> None:
+    for finding in findings:
+        details: dict[str, Any] = {}
+        if getattr(finding, "slot_id", ""):
+            details["slot_id"] = finding.slot_id
+        if getattr(finding, "segment_id", ""):
+            details["segment_id"] = finding.segment_id
+        if getattr(finding, "index", None) is not None:
+            details["index"] = finding.index
+        result.add(Phase6ValidationIssue(
+            "ERROR", finding.code, finding.message, object_id, revision, details=details,
+        ))
+
+
 def validate_content_domain(
     objects: dict[str, ContentObject],
     *,
     pinned_revisions: dict[str, int] | None = None,
     slot_values: dict[str, Any] | None = None,
-    translations: list[tuple[StrictTranslationVariant, list[ContentSegment]]] | None = None,
+    translations: list[tuple[TranslationVariant, list[ContentSegment]]] | None = None,
 ) -> Phase6ValidationResult:
     """Validate content objects, graph cycles, segments, slots and translations."""
     pinned_revisions = pinned_revisions or {}
@@ -113,21 +133,9 @@ def validate_content_domain(
                         f"Duplicate slot id {slot.slot_id}", object_id, revision.revision,
                     ))
                 seen_slots.add(slot.slot_id)
-                _add_messages(
-                    result,
-                    validate_slot_definition(slot),
-                    "invalid-slot-type" if slot.type not in SLOT_TYPES else "invalid-slot-definition",
-                    object_id,
-                    revision.revision,
-                )
+                _add_findings(result, validate_slot_definition(slot), object_id, revision.revision)
                 if slot.slot_id in slot_values:
-                    _add_messages(
-                        result,
-                        validate_slot_value(slot, slot_values[slot.slot_id]),
-                        "invalid-slot-value",
-                        object_id,
-                        revision.revision,
-                    )
+                    _add_findings(result, validate_slot_value(slot, slot_values[slot.slot_id]), object_id, revision.revision)
                 elif slot.required and slot.default_value in (None, "", []):
                     result.add(Phase6ValidationIssue(
                         "ERROR", "unresolved-slot",
@@ -149,14 +157,11 @@ def validate_content_domain(
                     ))
 
     for variant, source_segments in translations:
-        for finding in validate_translation_variant(variant, source_segments):
-            result.add(Phase6ValidationIssue(
-                finding.level,
-                finding.code,
-                finding.message,
-                variant.content_object_id,
-                variant.canonical_revision,
-                details=finding.details,
-            ))
+        _add_findings(
+            result,
+            validate_translation_variant(variant, source_segments),
+            variant.content_object_id,
+            variant.canonical_revision,
+        )
 
     return result
