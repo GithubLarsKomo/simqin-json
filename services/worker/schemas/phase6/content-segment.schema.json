@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://simqin.local/schemas/phase6/content-segment.schema.json",
+  "title": "ContentSegment",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["segment_id", "segment_type", "source_text", "source_revision", "order", "immutable_boundary"],
+  "properties": {
+    "segment_id": {"type": "string", "minLength": 1},
+    "segment_type": {"enum": ["sentence", "heading", "list-item", "table-cell", "caption", "label"]},
+    "source_text": {"type": "string"},
+    "source_revision": {"type": "integer", "minimum": 1},
+    "order": {"type": "integer", "minimum": 0},
+    "immutable_boundary": {"type": "boolean"},
+    "metadata": {"type": "object"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"segment_type": {"const": "sentence"}}, "required": ["segment_type"]},
+      "then": {"properties": {"immutable_boundary": {"const": true}}}
+    }
+  ]
+}
