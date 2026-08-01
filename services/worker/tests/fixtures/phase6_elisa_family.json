@@ -1,0 +1,127 @@
+{
+  "family_id": "elisa-autoimmune-family",
+  "description": "Deterministic Phase 6 fixture covering ELISA family reuse, translations, migrations and graph edge cases.",
+  "products": [
+    {"id": "elisa-ana-igg", "canonical_language": "de-DE", "analyte": "ANA", "sample_type": "Serum", "incubation_minutes": 30, "unit": "RU/ml"},
+    {"id": "elisa-dsdna-igg", "canonical_language": "de-DE", "analyte": "dsDNA", "sample_type": "Serum", "incubation_minutes": 30, "unit": "IU/ml"},
+    {"id": "elisa-ena-profile", "canonical_language": "de-DE", "analyte": "ENA-Profil", "sample_type": "Serum", "incubation_minutes": 30, "unit": "Ratio"},
+    {"id": "elisa-ccp-igg", "canonical_language": "de-DE", "analyte": "CCP", "sample_type": "Serum/Plasma", "incubation_minutes": 60, "unit": "RU/ml"},
+    {"id": "elisa-cardiolipin-igg", "canonical_language": "de-DE", "analyte": "Cardiolipin IgG", "sample_type": "Serum", "incubation_minutes": 30, "unit": "GPL-U/ml"},
+    {"id": "elisa-cardiolipin-igm", "canonical_language": "de-DE", "analyte": "Cardiolipin IgM", "sample_type": "Serum", "incubation_minutes": 30, "unit": "MPL-U/ml"},
+    {"id": "elisa-beta2gp1-igg", "canonical_language": "de-DE", "analyte": "β2-Glykoprotein 1 IgG", "sample_type": "Serum", "incubation_minutes": 30, "unit": "RU/ml"},
+    {"id": "elisa-beta2gp1-igm", "canonical_language": "de-DE", "analyte": "β2-Glykoprotein 1 IgM", "sample_type": "Serum", "incubation_minutes": 30, "unit": "RU/ml"},
+    {"id": "elisa-transglutaminase-iga", "canonical_language": "de-DE", "analyte": "Transglutaminase IgA", "sample_type": "Serum", "incubation_minutes": 30, "unit": "RU/ml"},
+    {"id": "elisa-gliadin-igg", "canonical_language": "en-US", "analyte": "Deamidated gliadin IgG", "sample_type": "Serum", "incubation_minutes": 30, "unit": "RU/ml"}
+  ],
+  "content_objects": [
+    {
+      "id": "tpl-intended-purpose",
+      "type": "template",
+      "section_type": "intended-purpose",
+      "status": "approved",
+      "canonical_language": "de-DE",
+      "current_revision": 1,
+      "revisions": [{
+        "object_id": "tpl-intended-purpose",
+        "revision": 1,
+        "canonical_content": "Der ELISA dient dem quantitativen Nachweis von {{analyte}} in {{sample_type}}.",
+        "slots": [
+          {"slot_id": "analyte", "type": "analyte", "required": true},
+          {"slot_id": "sample_type", "type": "sample-type", "required": true}
+        ],
+        "sentence_segments": [{"segment_id": "purpose-s1", "segment_type": "sentence", "source_text": "Der ELISA dient dem quantitativen Nachweis von {{analyte}} in {{sample_type}}.", "source_revision": 1, "order": 0, "immutable_boundary": true, "metadata": {}}],
+        "composed_objects": [],
+        "approval_status": "approved"
+      }]
+    },
+    {
+      "id": "tpl-procedure",
+      "type": "template",
+      "section_type": "procedure",
+      "status": "approved",
+      "canonical_language": "de-DE",
+      "current_revision": 1,
+      "revisions": [{
+        "object_id": "tpl-procedure",
+        "revision": 1,
+        "canonical_content": "Inkubieren Sie die Proben für {{incubation_minutes}} Minuten.",
+        "slots": [{"slot_id": "incubation_minutes", "type": "duration", "required": true, "allowed_units": ["min"]}],
+        "sentence_segments": [{"segment_id": "procedure-s1", "segment_type": "sentence", "source_text": "Inkubieren Sie die Proben für {{incubation_minutes}} Minuten.", "source_revision": 1, "order": 0, "immutable_boundary": true, "metadata": {}}],
+        "composed_objects": [{"composition_id": "procedure-warning", "child_object_id": "warning-general", "pinned_revision": 1, "placement": "last", "order": 10}],
+        "approval_status": "approved"
+      }]
+    },
+    {
+      "id": "warning-general",
+      "type": "warning",
+      "section_type": "warnings",
+      "status": "approved",
+      "canonical_language": "de-DE",
+      "current_revision": 1,
+      "revisions": [{
+        "object_id": "warning-general",
+        "revision": 1,
+        "canonical_content": "Alle Reagenzien vor Gebrauch auf Raumtemperatur bringen.",
+        "slots": [],
+        "sentence_segments": [{"segment_id": "warning-s1", "segment_type": "sentence", "source_text": "Alle Reagenzien vor Gebrauch auf Raumtemperatur bringen.", "source_revision": 1, "order": 0, "immutable_boundary": true, "metadata": {}}],
+        "composed_objects": [{"composition_id": "warning-ppe", "child_object_id": "warning-ppe", "pinned_revision": 1, "placement": "last", "order": 1}],
+        "approval_status": "approved"
+      }]
+    },
+    {
+      "id": "warning-ppe",
+      "type": "warning",
+      "section_type": "warnings",
+      "status": "approved",
+      "canonical_language": "de-DE",
+      "current_revision": 1,
+      "revisions": [{"object_id": "warning-ppe", "revision": 1, "canonical_content": "Geeignete persönliche Schutzausrüstung tragen.", "slots": [], "sentence_segments": [], "composed_objects": [], "approval_status": "approved"}]
+    },
+    {
+      "id": "conditional-sample-note",
+      "type": "paragraph",
+      "section_type": "sample-requirements",
+      "status": "approved",
+      "canonical_language": "de-DE",
+      "current_revision": 1,
+      "revisions": [{"object_id": "conditional-sample-note", "revision": 1, "canonical_content": "Plasmaproben sind nur für entsprechend freigegebene Produkte zulässig.", "slots": [], "sentence_segments": [], "composed_objects": [], "visibility_rule": {"rule_id": "plasma-only", "operator": "equals", "parameter_id": "sample_type", "value": "Serum/Plasma", "children": []}, "approval_status": "approved"}]
+    },
+    {
+      "id": "free-ccp-purpose",
+      "type": "paragraph",
+      "section_type": "intended-purpose",
+      "status": "approved",
+      "canonical_language": "de-DE",
+      "current_revision": 1,
+      "base_template_id": "tpl-intended-purpose",
+      "binding": {"base_template_id": "tpl-intended-purpose", "mode": "free", "detached_from_revision": 1, "last_compared_revision": 1, "sync_policy": "suggest", "reason": "CCP wording intentionally includes rheumatoid-arthritis context"},
+      "revisions": [{"object_id": "free-ccp-purpose", "revision": 1, "canonical_content": "Der ELISA unterstützt die serologische Abklärung der rheumatoiden Arthritis durch den Nachweis von CCP-Antikörpern.", "slots": [], "sentence_segments": [], "composed_objects": [], "approval_status": "approved"}]
+    }
+  ],
+  "diamond_graph": {
+    "root": ["diamond-left", "diamond-right"],
+    "diamond-left": ["warning-general"],
+    "diamond-right": ["warning-general"]
+  },
+  "invalid_graphs": {
+    "inheritance_cycle": [["cycle-a", "cycle-b"], ["cycle-b", "cycle-a"]],
+    "composition_cycle": [["cycle-c", "cycle-d"], ["cycle-d", "cycle-c"]],
+    "mixed_cycle": [["cycle-e", "cycle-f", "inherits-from"], ["cycle-f", "cycle-g", "composes"], ["cycle-g", "cycle-e", "composes"]],
+    "alias_cycle": {"legacy-a": "legacy-b", "legacy-b": "legacy-a"}
+  },
+  "multiplicity_rules": [
+    {"object_id": "warning-general", "mode": "multiple", "max_occurrences": 2, "revision": 1, "status": "approved"}
+  ],
+  "aliases": {"old-warning-id": "warning-general", "older-warning-id": "old-warning-id"},
+  "translation_variants": [
+    {"id": "warning-en-eu", "content_object_id": "warning-general", "canonical_revision": 1, "target_language": "en-US", "revision": 1, "status": "approved", "applicability": {"markets": ["EU"]}, "segment_translations": [{"segment_id": "warning-s1", "source_text": "Alle Reagenzien vor Gebrauch auf Raumtemperatur bringen.", "translated_text": "Bring all reagents to room temperature before use.", "order": 0}]},
+    {"id": "warning-en-us", "content_object_id": "warning-general", "canonical_revision": 1, "target_language": "en-US", "revision": 1, "status": "approved", "applicability": {"markets": ["US"]}, "segment_translations": [{"segment_id": "warning-s1", "source_text": "Alle Reagenzien vor Gebrauch auf Raumtemperatur bringen.", "translated_text": "Allow all reagents to reach room temperature before use.", "order": 0}]}
+  ],
+  "translation_selection": {"working_version_id": "wv-ana-1", "content_object_id": "warning-general", "canonical_revision": 1, "target_language": "en-US", "translation_variant_id": "warning-en-eu", "translation_revision": 1, "selected_by": "fixture-user", "selected_at": "2026-08-01T00:00:00+00:00"},
+  "structure_migrations": [
+    {"migration_id": "mig-pending", "status": "pending_approval", "created_by": "author-a"},
+    {"migration_id": "mig-rejected", "status": "rejected", "created_by": "author-a", "decided_by": "reviewer-b", "comment": "Sentence boundary would break approved translations."},
+    {"migration_id": "mig-changes", "status": "changes_requested", "created_by": "author-a", "decided_by": "reviewer-b", "comment": "Preserve the first sentence ID."}
+  ],
+  "released_snapshot": {"release_id": "rel-ana-de-1", "product_id": "elisa-ana-igg", "language": "de-DE", "version": 1, "immutable": true}
+}
