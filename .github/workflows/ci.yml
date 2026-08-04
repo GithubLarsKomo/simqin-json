@@ -80,3 +80,9 @@ jobs:
 
       - name: Type-check and build
         run: npm run build
+
+      - name: Verify multi-page output
+        run: |
+          test -f dist/index.html
+          test -f dist/phase6.html
+          echo 'verified dist/index.html and dist/phase6.html'
