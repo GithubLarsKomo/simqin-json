@@ -37,6 +37,8 @@ def build_language_release_snapshot(
     created_by: str = "",
 ) -> IFULanguageReleaseSnapshot:
     findings: list[dict[str, Any]] = []
+    if getattr(resolved_tree.provenance, "mode", "") != "pinned":
+        findings.append({"code": "release-requires-pinned-resolution", "message": "Release creation requires revision_mode='pinned'"})
     if not resolved_tree.is_valid():
         findings.extend(
             item.to_dict() if hasattr(item, "to_dict") else {"code": "resolution-error", "message": str(item)}
@@ -92,7 +94,7 @@ def build_language_release_snapshot(
         "resolution_checksum": resolved_tree.checksum,
         "graph_checksum": getattr(resolved_tree.provenance, "graph_checksum", ""),
         "configuration_hash": resolved_tree.config_hash,
-        "resolution_mode": getattr(resolved_tree.provenance, "resolution_mode", ""),
+        "resolution_mode": getattr(resolved_tree.provenance, "mode", ""),
         "object_revisions_read": getattr(resolved_tree.provenance, "object_revisions_read", []),
         "aliases_followed": getattr(resolved_tree.provenance, "aliases_followed", []),
     }
