@@ -7,6 +7,7 @@ from app.review_store import ReviewDecisionStore
 
 
 client = TestClient(app)
+_REVIEWER_HEADERS = {"X-SIMQIN-Reviewer": "reviewer-b"}
 
 
 def test_review_store_persists_across_instances(tmp_path):
@@ -80,14 +81,26 @@ def test_review_store_is_append_only(tmp_path):
     assert [row["decision"] for row in rows] == ["changes_requested", "approved"]
 
 
+def test_review_api_requires_trusted_reviewer_header(tmp_path, monkeypatch):
+    monkeypatch.setenv("STORAGE_DIR", str(tmp_path))
+
+    response = client.post(
+        "/api/v1/reviews/migrations/mig-api/decisions",
+        json={"created_by": "author-a", "decision": "approved"},
+    )
+
+    assert response.status_code == 401
+    assert "Trusted reviewer identity" in response.json()["detail"]
+
+
 def test_review_api_persists_and_lists_decisions(tmp_path, monkeypatch):
     monkeypatch.setenv("STORAGE_DIR", str(tmp_path))
 
     response = client.post(
         "/api/v1/reviews/migrations/mig-api/decisions",
+        headers=_REVIEWER_HEADERS,
         json={
             "created_by": "author-a",
-            "reviewer": "reviewer-b",
             "decision": "rejected",
             "comment": "Segment mapping needs correction.",
         },
@@ -96,6 +109,7 @@ def test_review_api_persists_and_lists_decisions(tmp_path, monkeypatch):
     body = response.json()
     assert body["migration_id"] == "mig-api"
     assert body["decision"] == "rejected"
+    assert body["reviewer"] == "reviewer-b"
 
     listed = client.get("/api/v1/reviews/migrations/mig-api/decisions")
     assert listed.status_code == 200
@@ -104,16 +118,13 @@ def test_review_api_persists_and_lists_decisions(tmp_path, monkeypatch):
     assert payload["decisions"][0]["comment"] == "Segment mapping needs correction."
 
 
-def test_review_api_rejects_self_review(tmp_path, monkeypatch):
+def test_review_api_rejects_self_review_from_trusted_identity(tmp_path, monkeypatch):
     monkeypatch.setenv("STORAGE_DIR", str(tmp_path))
 
     response = client.post(
         "/api/v1/reviews/migrations/mig-api/decisions",
-        json={
-            "created_by": "author-a",
-            "reviewer": "author-a",
-            "decision": "approved",
-        },
+        headers={"X-SIMQIN-Reviewer": "author-a"},
+        json={"created_by": "author-a", "decision": "approved"},
     )
     assert response.status_code == 400
     assert "Four-eyes" in response.json()["detail"]
