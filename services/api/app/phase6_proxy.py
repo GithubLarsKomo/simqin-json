@@ -67,3 +67,20 @@ async def phase6_translation_validate(body: dict[str, Any]) -> dict[str, Any]:
 @router.post("/ifu/releases/verify")
 async def phase6_release_verify(body: dict[str, Any]) -> dict[str, Any]:
     return await _post("/api/v1/ifu/releases/verify", body)
+
+
+@router.get("/reviews/migrations/{migration_id}/decisions")
+async def phase6_migration_review_decisions(migration_id: str) -> dict[str, Any]:
+    async with httpx.AsyncClient(timeout=30) as client:
+        response = await client.get(
+            f"{WORKER_BASE_URL}/api/v1/reviews/migrations/{migration_id}/decisions"
+        )
+    return await _json_response(response)
+
+
+@router.post("/reviews/migrations/{migration_id}/decisions", status_code=201)
+async def phase6_create_migration_review_decision(
+    migration_id: str,
+    body: dict[str, Any],
+) -> dict[str, Any]:
+    return await _post(f"/api/v1/reviews/migrations/{migration_id}/decisions", body)
