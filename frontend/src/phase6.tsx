@@ -2,11 +2,14 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import './style.css';
 import Phase6Workspace from './Phase6Workspace';
+import Phase6ReleaseWorkflow from './Phase6ReleaseWorkflow';
 
 const DEMO_RESOLVE_PAYLOAD = {
   root_object_ids: ['elisa-intended-purpose-demo'],
-  revision_mode: 'working',
-  pinned_revisions: {},
+  revision_mode: 'pinned',
+  pinned_revisions: {
+    'elisa-intended-purpose-demo': 1,
+  },
   aliases: {},
   multiplicity_rules: [],
   slot_values: {
@@ -50,5 +53,8 @@ const DEMO_RESOLVE_PAYLOAD = {
 createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <Phase6Workspace resolvePayload={DEMO_RESOLVE_PAYLOAD} />
+    <main style={{ maxWidth: 1400 }}>
+      <Phase6ReleaseWorkflow resolvePayload={DEMO_RESOLVE_PAYLOAD} />
+    </main>
   </React.StrictMode>,
 );
