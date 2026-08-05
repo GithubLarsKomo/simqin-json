@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
@@ -19,6 +20,7 @@ def _new_id() -> str:
 
 PARAM_TYPES = {"string", "boolean", "integer", "decimal", "enum", "string-list"}
 PARAM_STATUSES = {"draft", "approved", "deprecated", "archived"}
+_INTEGER_STRING = re.compile(r"^[+-]?\d+$")
 
 
 class ConfigurationParameter:
@@ -159,8 +161,14 @@ class ConfigurationCatalog:
             errors.append("value must be a string")
         elif param.type == "boolean" and not isinstance(value, bool):
             errors.append("value must be a boolean")
-        elif param.type == "integer" and (not isinstance(value, int) or isinstance(value, bool)):
-            errors.append("value must be an integer")
+        elif param.type == "integer":
+            is_integer = (
+                isinstance(value, int) and not isinstance(value, bool)
+            ) or (
+                isinstance(value, str) and bool(_INTEGER_STRING.fullmatch(value.strip()))
+            )
+            if not is_integer:
+                errors.append("value must be an integer")
         elif param.type == "decimal":
             try:
                 Decimal(str(value))
