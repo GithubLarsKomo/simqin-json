@@ -96,4 +96,33 @@ if ($fatal.Count -gt 0) {
 Write-Host "[OK] Phase 6 resolver via API gateway"
 Write-Host "[OK] Rendered: $rendered"
 Write-Host "[OK] Checksum: $($result.checksum)"
+
+$migrationId = "smoke-$([guid]::NewGuid().ToString('N'))"
+$reviewBody = @{
+    created_by = 'smoke-author'
+    reviewer = 'smoke-reviewer'
+    decision = 'approved'
+    comment = 'Automated Phase 6 smoke review.'
+} | ConvertTo-Json
+
+$createdDecision = Invoke-RestMethod `
+    -Uri "$ApiBase/api/v1/reviews/migrations/$migrationId/decisions" `
+    -Method Post `
+    -ContentType 'application/json' `
+    -Body $reviewBody
+
+if ($createdDecision.migration_id -ne $migrationId -or $createdDecision.decision -ne 'approved') {
+    throw "Persistent review write returned unexpected content: $($createdDecision | ConvertTo-Json -Depth 8)"
+}
+
+$reviewHistory = Invoke-RestMethod `
+    -Uri "$ApiBase/api/v1/reviews/migrations/$migrationId/decisions" `
+    -Method Get
+
+if ($reviewHistory.count -ne 1 -or $reviewHistory.decisions[0].decision_id -ne $createdDecision.decision_id) {
+    throw "Persistent review read-back failed: $($reviewHistory | ConvertTo-Json -Depth 8)"
+}
+
+Write-Host "[OK] Persistent review write/read via API gateway"
+Write-Host "[OK] Review decision: $($createdDecision.decision_id)"
 Write-Host 'Phase 6 smoke test PASSED.'
