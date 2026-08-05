@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from .composition_validation import validate_composition_placements
 from .content_build_graph import build_content_graph
 from .content_objects import ContentObject
 from .content_segment import ContentSegment, validate_segments
@@ -141,6 +142,22 @@ def validate_content_domain(
                         "ERROR", "unresolved-slot",
                         f"Required slot {slot.slot_id} has no value", object_id, revision.revision,
                     ))
+
+            for placement in validate_composition_placements(revision.composed_objects):
+                details: dict[str, Any] = {}
+                if placement.composition_id:
+                    details["composition_id"] = placement.composition_id
+                if placement.anchor:
+                    details["anchor"] = placement.anchor
+                result.add(Phase6ValidationIssue(
+                    "FATAL" if placement.code == "composition-placement-cycle" else "ERROR",
+                    placement.code,
+                    placement.message,
+                    object_id,
+                    revision.revision,
+                    path=placement.path,
+                    details=details,
+                ))
 
             for binding in revision.composed_objects:
                 child = objects.get(binding.child_object_id)
