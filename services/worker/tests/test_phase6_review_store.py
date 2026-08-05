@@ -7,7 +7,18 @@ from app.review_store import ReviewDecisionStore
 
 
 client = TestClient(app)
-_REVIEWER_HEADERS = {"X-SIMQIN-Reviewer": "reviewer-b"}
+_REVIEWER_HEADERS = {
+    "X-SIMQIN-User": "reviewer-b",
+    "X-SIMQIN-Role": "reviewer",
+}
+_APPROVER_HEADERS = {
+    "X-SIMQIN-User": "approver-c",
+    "X-SIMQIN-Role": "approver",
+}
+_AUTHOR_HEADERS = {
+    "X-SIMQIN-User": "author-z",
+    "X-SIMQIN-Role": "author",
+}
 
 
 def test_review_store_persists_across_instances(tmp_path):
@@ -81,7 +92,7 @@ def test_review_store_is_append_only(tmp_path):
     assert [row["decision"] for row in rows] == ["changes_requested", "approved"]
 
 
-def test_review_api_requires_trusted_reviewer_header(tmp_path, monkeypatch):
+def test_review_api_requires_trusted_identity_and_role(tmp_path, monkeypatch):
     monkeypatch.setenv("STORAGE_DIR", str(tmp_path))
 
     response = client.post(
@@ -90,10 +101,23 @@ def test_review_api_requires_trusted_reviewer_header(tmp_path, monkeypatch):
     )
 
     assert response.status_code == 401
-    assert "Trusted reviewer identity" in response.json()["detail"]
+    assert "Trusted user identity" in response.json()["detail"]
 
 
-def test_review_api_persists_and_lists_decisions(tmp_path, monkeypatch):
+def test_author_role_cannot_review(tmp_path, monkeypatch):
+    monkeypatch.setenv("STORAGE_DIR", str(tmp_path))
+
+    response = client.post(
+        "/api/v1/reviews/migrations/mig-api/decisions",
+        headers=_AUTHOR_HEADERS,
+        json={"created_by": "author-a", "decision": "approved"},
+    )
+
+    assert response.status_code == 403
+    assert "not permitted" in response.json()["detail"]
+
+
+def test_reviewer_role_persists_and_lists_decisions(tmp_path, monkeypatch):
     monkeypatch.setenv("STORAGE_DIR", str(tmp_path))
 
     response = client.post(
@@ -118,12 +142,25 @@ def test_review_api_persists_and_lists_decisions(tmp_path, monkeypatch):
     assert payload["decisions"][0]["comment"] == "Segment mapping needs correction."
 
 
+def test_approver_role_can_review(tmp_path, monkeypatch):
+    monkeypatch.setenv("STORAGE_DIR", str(tmp_path))
+
+    response = client.post(
+        "/api/v1/reviews/migrations/mig-approver/decisions",
+        headers=_APPROVER_HEADERS,
+        json={"created_by": "author-a", "decision": "approved"},
+    )
+
+    assert response.status_code == 201
+    assert response.json()["reviewer"] == "approver-c"
+
+
 def test_review_api_rejects_self_review_from_trusted_identity(tmp_path, monkeypatch):
     monkeypatch.setenv("STORAGE_DIR", str(tmp_path))
 
     response = client.post(
         "/api/v1/reviews/migrations/mig-api/decisions",
-        headers={"X-SIMQIN-Reviewer": "author-a"},
+        headers={"X-SIMQIN-User": "author-a", "X-SIMQIN-Role": "reviewer"},
         json={"created_by": "author-a", "decision": "approved"},
     )
     assert response.status_code == 400
