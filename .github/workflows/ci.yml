@@ -39,7 +39,21 @@ jobs:
         run: python -m compileall app
 
       - name: Verify Phase 6 worker entrypoint
-        run: python -c "from app.phase6_main import app; assert any(route.path == '/api/v1/content/resolve' for route in app.routes)"
+        run: |
+          python - <<'PY'
+          from app.phase6_main import app
+          paths = {route.path for route in app.routes}
+          required = {
+              '/api/v1/content/resolve',
+              '/api/v1/ifu/releases',
+              '/api/v1/ifu/releases/{release_id}',
+              '/api/v1/ifu/releases/verify',
+          }
+          missing = sorted(required - paths)
+          if missing:
+              raise SystemExit(f'Missing Phase 6 worker routes: {missing}')
+          print('verified Phase 6 worker routes')
+          PY
 
       - name: Run test suite
         run: pytest tests -q
@@ -95,6 +109,8 @@ jobs:
               '/api/v1/content/validate',
               '/api/v1/content/resolve',
               '/api/v1/translations/validate',
+              '/api/v1/ifu/releases',
+              '/api/v1/ifu/releases/{release_id}',
               '/api/v1/ifu/releases/verify',
           }
           missing = sorted(required - paths)
