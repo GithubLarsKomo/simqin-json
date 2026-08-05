@@ -7,6 +7,14 @@ from app.phase6_main import app
 
 
 client = TestClient(app)
+_APPROVER_HEADERS = {
+    "X-SIMQIN-User": "approver-a",
+    "X-SIMQIN-Role": "approver",
+}
+_REVIEWER_HEADERS = {
+    "X-SIMQIN-User": "reviewer-a",
+    "X-SIMQIN-Role": "reviewer",
+}
 
 
 def _object(object_id: str = "root", content: str = "Hello {{name}}") -> dict:
@@ -147,6 +155,16 @@ def test_translation_validate_reports_placeholder_loss():
     }
 
 
+def test_release_verify_requires_approver_role():
+    response = client.post(
+        "/api/v1/ifu/releases/verify",
+        headers=_REVIEWER_HEADERS,
+        json={"release": {}},
+    )
+    assert response.status_code == 403
+    assert "not permitted" in response.json()["detail"]
+
+
 def test_release_verify_endpoint_detects_tampering():
     release = IFULanguageReleaseSnapshot(
         release_id="rel-1",
@@ -157,12 +175,20 @@ def test_release_verify_endpoint_detects_tampering():
         created_at="2026-08-01T00:00:00+00:00",
         created_by="tester",
     )
-    valid = client.post("/api/v1/ifu/releases/verify", json={"release": release.to_dict()})
+    valid = client.post(
+        "/api/v1/ifu/releases/verify",
+        headers=_APPROVER_HEADERS,
+        json={"release": release.to_dict()},
+    )
     assert valid.status_code == 200
     assert valid.json()["valid"] is True
 
     tampered = release.to_dict()
     tampered["resolved_blocks"][0]["rendered_content"] = "Changed"
-    invalid = client.post("/api/v1/ifu/releases/verify", json={"release": tampered})
+    invalid = client.post(
+        "/api/v1/ifu/releases/verify",
+        headers=_APPROVER_HEADERS,
+        json={"release": tampered},
+    )
     assert invalid.status_code == 200
     assert invalid.json()["valid"] is False
