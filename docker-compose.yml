@@ -5,7 +5,8 @@ services:
     environment:
       - STORAGE_DIR=/data/storage
       - WORKER_BASE_URL=http://worker:8090
-      - SIMQIN_REVIEWER_ID=${SIMQIN_REVIEWER_ID:-reviewer-b}
+      - SIMQIN_USER_ID=${SIMQIN_USER_ID:-reviewer-b}
+      - SIMQIN_ROLE=${SIMQIN_ROLE:-reviewer}
     ports:
       - "${API_PORT:-8080}:8080"
     volumes:
