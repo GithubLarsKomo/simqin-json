@@ -14,6 +14,7 @@ from .content_objects import ContentObject, MultiplicityRule
 from .content_resolver import resolve_content_tree
 from .content_segment import ContentSegment
 from .ifu_release import IFULanguageReleaseSnapshot
+from .phase6_roles import Phase6Principal
 from .phase6_validation import validate_content_domain
 from .review_store import ReviewDecisionStore
 from .translation_validation import validate_translation_variant
@@ -52,6 +53,20 @@ class MigrationReviewDecisionPayload(BaseModel):
     created_by: str
     decision: Literal["approved", "rejected", "changes_requested"]
     comment: str = ""
+
+
+def _trusted_principal(user_id: str | None, role: str | None) -> Phase6Principal:
+    try:
+        return Phase6Principal.from_trusted_headers(user_id, role)
+    except ValueError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+
+
+def _require_permission(principal: Phase6Principal, permission: str) -> None:
+    try:
+        principal.require(permission)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
 
 
 def _objects(rows: list[dict[str, Any]]) -> dict[str, ContentObject]:
@@ -148,7 +163,13 @@ def translation_validate(payload: TranslationValidatePayload) -> dict[str, Any]:
 
 
 @router.post("/ifu/releases/verify")
-def release_verify(payload: ReleaseVerifyPayload) -> dict[str, Any]:
+def release_verify(
+    payload: ReleaseVerifyPayload,
+    x_simqin_user: str | None = Header(default=None, alias="X-SIMQIN-User"),
+    x_simqin_role: str | None = Header(default=None, alias="X-SIMQIN-Role"),
+) -> dict[str, Any]:
+    principal = _trusted_principal(x_simqin_user, x_simqin_role)
+    _require_permission(principal, "release")
     try:
         release = IFULanguageReleaseSnapshot.from_dict(payload.release)
     except (KeyError, TypeError, ValueError) as exc:
@@ -174,16 +195,16 @@ def migration_review_decisions(migration_id: str) -> dict[str, Any]:
 def create_migration_review_decision(
     migration_id: str,
     payload: MigrationReviewDecisionPayload,
-    x_simqin_reviewer: str | None = Header(default=None, alias="X-SIMQIN-Reviewer"),
+    x_simqin_user: str | None = Header(default=None, alias="X-SIMQIN-User"),
+    x_simqin_role: str | None = Header(default=None, alias="X-SIMQIN-Role"),
 ) -> dict[str, Any]:
-    reviewer = (x_simqin_reviewer or "").strip()
-    if not reviewer:
-        raise HTTPException(status_code=401, detail="Trusted reviewer identity is required")
+    principal = _trusted_principal(x_simqin_user, x_simqin_role)
+    _require_permission(principal, "review")
     try:
         return ReviewDecisionStore().add_decision(
             migration_id=migration_id,
             created_by=payload.created_by,
-            reviewer=reviewer,
+            reviewer=principal.user_id,
             decision=payload.decision,
             comment=payload.comment,
         )
