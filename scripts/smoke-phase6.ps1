@@ -25,7 +25,7 @@ $payload = @{
     pinned_revisions = @{
         'tpl-smoke' = 1
     }
-    config_values = @{
+    slot_values = @{
         analyte = 'ANA'
         sample_type = 'Serum'
     }
