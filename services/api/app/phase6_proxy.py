@@ -12,7 +12,8 @@ from .main import WORKER_BASE_URL
 
 
 router = APIRouter(prefix="/api/v1", tags=["phase6-content"])
-_REVIEWER_ID = os.getenv("SIMQIN_REVIEWER_ID", "").strip()
+_USER_ID = (os.getenv("SIMQIN_USER_ID") or os.getenv("SIMQIN_REVIEWER_ID") or "").strip()
+_ROLE = os.getenv("SIMQIN_ROLE", "").strip().lower()
 
 
 async def _json_response(response: httpx.Response) -> Any:
@@ -24,6 +25,14 @@ async def _json_response(response: httpx.Response) -> Any:
             detail = response.text
         raise HTTPException(status_code=response.status_code, detail=detail)
     return response.json()
+
+
+def _trusted_headers() -> dict[str, str]:
+    if not _USER_ID:
+        raise HTTPException(status_code=503, detail="SIMQIN_USER_ID is not configured")
+    if _ROLE not in {"author", "reviewer", "approver"}:
+        raise HTTPException(status_code=503, detail="SIMQIN_ROLE must be author, reviewer or approver")
+    return {"X-SIMQIN-User": _USER_ID, "X-SIMQIN-Role": _ROLE}
 
 
 @router.get("/content/schemas")
@@ -73,7 +82,11 @@ async def phase6_translation_validate(body: dict[str, Any]) -> dict[str, Any]:
 
 @router.post("/ifu/releases/verify")
 async def phase6_release_verify(body: dict[str, Any]) -> dict[str, Any]:
-    return await _post("/api/v1/ifu/releases/verify", body)
+    return await _post(
+        "/api/v1/ifu/releases/verify",
+        body,
+        headers=_trusted_headers(),
+    )
 
 
 @router.get("/reviews/migrations/{migration_id}/decisions")
@@ -90,12 +103,11 @@ async def phase6_create_migration_review_decision(
     migration_id: str,
     body: dict[str, Any],
 ) -> dict[str, Any]:
-    if not _REVIEWER_ID:
-        raise HTTPException(status_code=503, detail="SIMQIN_REVIEWER_ID is not configured")
     body = dict(body)
     body.pop("reviewer", None)
+    body.pop("role", None)
     return await _post(
         f"/api/v1/reviews/migrations/{migration_id}/decisions",
         body,
-        headers={"X-SIMQIN-Reviewer": _REVIEWER_ID},
+        headers=_trusted_headers(),
     )
