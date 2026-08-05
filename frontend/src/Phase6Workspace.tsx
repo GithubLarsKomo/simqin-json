@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080';
 
@@ -30,6 +30,16 @@ type Migration = {
   original_segments: string[];
   proposed_segments: string[];
   impact_summary: string;
+};
+
+type ReviewDecision = {
+  decision_id: string;
+  migration_id: string;
+  created_by: string;
+  reviewer: string;
+  decision: 'approved' | 'rejected' | 'changes_requested';
+  comment: string;
+  decided_at: string;
 };
 
 type ResolutionBlock = {
@@ -137,18 +147,59 @@ function CandidateReviewView({ candidates }: { candidates: Candidate[] }) {
 
 function StructureMigrationReviewView({ migrations, currentUser }: { migrations: Migration[]; currentUser: string }) {
   const [comments, setComments] = useState<Record<string, string>>({});
-  const [decisions, setDecisions] = useState<Record<string, string>>({});
+  const [messages, setMessages] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState<Record<string, boolean>>({});
+  const [history, setHistory] = useState<Record<string, ReviewDecision[]>>({});
 
-  function decide(migration: Migration, decision: 'approved' | 'rejected' | 'changes_requested') {
-    if (migration.created_by === currentUser) {
-      setDecisions((old) => ({ ...old, [migration.migration_id]: 'Vier-Augen-Prinzip: Selbstentscheidung ist nicht erlaubt.' }));
-      return;
+  async function loadHistory(migrationId: string) {
+    try {
+      const response = await fetch(`${API_BASE}/api/v1/reviews/migrations/${encodeURIComponent(migrationId)}/decisions`);
+      if (!response.ok) throw new Error(await response.text());
+      const payload = await response.json() as { decisions: ReviewDecision[] };
+      setHistory((old) => ({ ...old, [migrationId]: payload.decisions || [] }));
+    } catch (reason) {
+      setMessages((old) => ({ ...old, [migrationId]: `Historie konnte nicht geladen werden: ${String(reason)}` }));
     }
-    if (decision !== 'approved' && !comments[migration.migration_id]?.trim()) {
-      setDecisions((old) => ({ ...old, [migration.migration_id]: 'Kommentar ist für Ablehnung oder Änderungsanforderung erforderlich.' }));
-      return;
+  }
+
+  useEffect(() => {
+    migrations.forEach((migration) => { void loadHistory(migration.migration_id); });
+  }, [migrations]);
+
+  async function decide(migration: Migration, decision: 'approved' | 'rejected' | 'changes_requested') {
+    const comment = comments[migration.migration_id]?.trim() || '';
+    setBusy((old) => ({ ...old, [migration.migration_id]: true }));
+    setMessages((old) => ({ ...old, [migration.migration_id]: '' }));
+    try {
+      const response = await fetch(`${API_BASE}/api/v1/reviews/migrations/${encodeURIComponent(migration.migration_id)}/decisions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          created_by: migration.created_by,
+          reviewer: currentUser,
+          decision,
+          comment,
+        }),
+      });
+      if (!response.ok) {
+        let detail = await response.text();
+        try {
+          const parsed = JSON.parse(detail) as { detail?: string };
+          detail = parsed.detail || detail;
+        } catch {
+          // Keep raw response text.
+        }
+        throw new Error(detail);
+      }
+      const saved = await response.json() as ReviewDecision;
+      setMessages((old) => ({ ...old, [migration.migration_id]: `Gespeichert: ${saved.decision} · ${saved.decision_id}` }));
+      setComments((old) => ({ ...old, [migration.migration_id]: '' }));
+      await loadHistory(migration.migration_id);
+    } catch (reason) {
+      setMessages((old) => ({ ...old, [migration.migration_id]: String(reason) }));
+    } finally {
+      setBusy((old) => ({ ...old, [migration.migration_id]: false }));
     }
-    setDecisions((old) => ({ ...old, [migration.migration_id]: decision }));
   }
 
   return (
@@ -170,11 +221,31 @@ function StructureMigrationReviewView({ migrations, currentUser }: { migrations:
             style={{ width: '100%', minHeight: 72, marginTop: 10 }}
           />
           <div className="panel-actions" style={{ display: 'flex', gap: 8 }}>
-            <button className="btn-primary" onClick={() => decide(migration, 'approved')}>Genehmigen</button>
-            <button className="btn-sm" onClick={() => decide(migration, 'changes_requested')}>Änderungen anfordern</button>
-            <button className="btn-sm" onClick={() => decide(migration, 'rejected')}>Ablehnen</button>
+            <button className="btn-primary" disabled={busy[migration.migration_id]} onClick={() => void decide(migration, 'approved')}>Genehmigen</button>
+            <button className="btn-sm" disabled={busy[migration.migration_id]} onClick={() => void decide(migration, 'changes_requested')}>Änderungen anfordern</button>
+            <button className="btn-sm" disabled={busy[migration.migration_id]} onClick={() => void decide(migration, 'rejected')}>Ablehnen</button>
           </div>
-          {decisions[migration.migration_id] && <div className="summary-bar">{decisions[migration.migration_id]}</div>}
+          {messages[migration.migration_id] && <div className="summary-bar">{messages[migration.migration_id]}</div>}
+          <details style={{ marginTop: 10 }}>
+            <summary>Review-Historie ({history[migration.migration_id]?.length || 0})</summary>
+            {(history[migration.migration_id] || []).length === 0 ? (
+              <p>Noch keine persistierten Entscheidungen.</p>
+            ) : (
+              <table className="validation-table">
+                <thead><tr><th>Zeit</th><th>Reviewer</th><th>Entscheidung</th><th>Kommentar</th></tr></thead>
+                <tbody>
+                  {(history[migration.migration_id] || []).map((item) => (
+                    <tr key={item.decision_id}>
+                      <td>{item.decided_at}</td>
+                      <td>{item.reviewer}</td>
+                      <td>{item.decision}</td>
+                      <td>{item.comment || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </details>
         </div>
       ))}
     </div>
