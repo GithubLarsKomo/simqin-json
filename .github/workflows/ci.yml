@@ -38,6 +38,9 @@ jobs:
       - name: Compile application
         run: python -m compileall app
 
+      - name: Verify Phase 6 worker entrypoint
+        run: python -c "from app.phase6_main import app; assert any(route.path == '/api/v1/content/resolve' for route in app.routes)"
+
       - name: Run test suite
         run: pytest tests -q
 
@@ -56,6 +59,48 @@ jobs:
               schema = json.loads(path.read_text(encoding='utf-8'))
               validator_for(schema).check_schema(schema)
               print(f'valid schema: {path}')
+          PY
+
+  gateway:
+    name: API gateway contract
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/api
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: services/api/requirements.txt
+
+      - name: Install dependencies
+        run: python -m pip install --upgrade pip && pip install -r requirements.txt
+
+      - name: Compile gateway
+        run: python -m compileall app
+
+      - name: Verify Phase 6 gateway routes
+        run: |
+          python - <<'PY'
+          from app.phase6_main import app
+          paths = {route.path for route in app.routes}
+          required = {
+              '/api/v1/content/schemas',
+              '/api/v1/content/graph',
+              '/api/v1/content/validate',
+              '/api/v1/content/resolve',
+              '/api/v1/translations/validate',
+              '/api/v1/ifu/releases/verify',
+          }
+          missing = sorted(required - paths)
+          if missing:
+              raise SystemExit(f'Missing Phase 6 gateway routes: {missing}')
+          print('verified Phase 6 gateway routes')
           PY
 
   frontend:
