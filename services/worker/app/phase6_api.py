@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field
 
 from .content_build_graph import content_graph_report
@@ -50,7 +50,6 @@ class ReleaseVerifyPayload(BaseModel):
 
 class MigrationReviewDecisionPayload(BaseModel):
     created_by: str
-    reviewer: str
     decision: Literal["approved", "rejected", "changes_requested"]
     comment: str = ""
 
@@ -175,12 +174,16 @@ def migration_review_decisions(migration_id: str) -> dict[str, Any]:
 def create_migration_review_decision(
     migration_id: str,
     payload: MigrationReviewDecisionPayload,
+    x_simqin_reviewer: str | None = Header(default=None, alias="X-SIMQIN-Reviewer"),
 ) -> dict[str, Any]:
+    reviewer = (x_simqin_reviewer or "").strip()
+    if not reviewer:
+        raise HTTPException(status_code=401, detail="Trusted reviewer identity is required")
     try:
         return ReviewDecisionStore().add_decision(
             migration_id=migration_id,
             created_by=payload.created_by,
-            reviewer=payload.reviewer,
+            reviewer=reviewer,
             decision=payload.decision,
             comment=payload.comment,
         )
