@@ -15,6 +15,7 @@ from .content_resolver import resolve_content_tree
 from .content_segment import ContentSegment
 from .ifu_release import IFULanguageReleaseSnapshot
 from .phase6_validation import validate_content_domain
+from .review_store import ReviewDecisionStore
 from .translation_validation import validate_translation_variant
 from .translations import TranslationVariant
 
@@ -45,6 +46,13 @@ class TranslationValidatePayload(BaseModel):
 
 class ReleaseVerifyPayload(BaseModel):
     release: dict[str, Any]
+
+
+class MigrationReviewDecisionPayload(BaseModel):
+    created_by: str
+    reviewer: str
+    decision: Literal["approved", "rejected", "changes_requested"]
+    comment: str = ""
 
 
 def _objects(rows: list[dict[str, Any]]) -> dict[str, ContentObject]:
@@ -152,3 +160,29 @@ def release_verify(payload: ReleaseVerifyPayload) -> dict[str, Any]:
         "release_checksum": release.release_checksum,
         "computed_checksum": release.compute_checksum(),
     }
+
+
+@router.get("/reviews/migrations/{migration_id}/decisions")
+def migration_review_decisions(migration_id: str) -> dict[str, Any]:
+    try:
+        decisions = ReviewDecisionStore().list_decisions(migration_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"migration_id": migration_id, "decisions": decisions, "count": len(decisions)}
+
+
+@router.post("/reviews/migrations/{migration_id}/decisions", status_code=201)
+def create_migration_review_decision(
+    migration_id: str,
+    payload: MigrationReviewDecisionPayload,
+) -> dict[str, Any]:
+    try:
+        return ReviewDecisionStore().add_decision(
+            migration_id=migration_id,
+            created_by=payload.created_by,
+            reviewer=payload.reviewer,
+            decision=payload.decision,
+            comment=payload.comment,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
