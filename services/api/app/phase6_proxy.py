@@ -49,12 +49,7 @@ async def phase6_schema(schema_name: str) -> dict[str, Any]:
     return await _json_response(response)
 
 
-async def _post(
-    path: str,
-    body: dict[str, Any],
-    *,
-    headers: dict[str, str] | None = None,
-) -> dict[str, Any]:
+async def _post(path: str, body: dict[str, Any], *, headers: dict[str, str] | None = None) -> dict[str, Any]:
     async with httpx.AsyncClient(timeout=30) as client:
         response = await client.post(f"{WORKER_BASE_URL}{path}", json=body, headers=headers)
     return await _json_response(response)
@@ -82,27 +77,37 @@ async def phase6_translation_validate(body: dict[str, Any]) -> dict[str, Any]:
 
 @router.post("/ifu/releases/verify")
 async def phase6_release_verify(body: dict[str, Any]) -> dict[str, Any]:
-    return await _post(
-        "/api/v1/ifu/releases/verify",
-        body,
-        headers=_trusted_headers(),
-    )
+    return await _post("/api/v1/ifu/releases/verify", body, headers=_trusted_headers())
+
+
+@router.post("/ifu/releases", status_code=201)
+async def phase6_create_release(body: dict[str, Any]) -> dict[str, Any]:
+    return await _post("/api/v1/ifu/releases", body, headers=_trusted_headers())
+
+
+@router.get("/ifu/releases")
+async def phase6_list_releases() -> dict[str, Any]:
+    async with httpx.AsyncClient(timeout=30) as client:
+        response = await client.get(f"{WORKER_BASE_URL}/api/v1/ifu/releases")
+    return await _json_response(response)
+
+
+@router.get("/ifu/releases/{release_id}")
+async def phase6_get_release(release_id: str) -> dict[str, Any]:
+    async with httpx.AsyncClient(timeout=30) as client:
+        response = await client.get(f"{WORKER_BASE_URL}/api/v1/ifu/releases/{release_id}")
+    return await _json_response(response)
 
 
 @router.get("/reviews/migrations/{migration_id}/decisions")
 async def phase6_migration_review_decisions(migration_id: str) -> dict[str, Any]:
     async with httpx.AsyncClient(timeout=30) as client:
-        response = await client.get(
-            f"{WORKER_BASE_URL}/api/v1/reviews/migrations/{migration_id}/decisions"
-        )
+        response = await client.get(f"{WORKER_BASE_URL}/api/v1/reviews/migrations/{migration_id}/decisions")
     return await _json_response(response)
 
 
 @router.post("/reviews/migrations/{migration_id}/decisions", status_code=201)
-async def phase6_create_migration_review_decision(
-    migration_id: str,
-    body: dict[str, Any],
-) -> dict[str, Any]:
+async def phase6_create_migration_review_decision(migration_id: str, body: dict[str, Any]) -> dict[str, Any]:
     body = dict(body)
     body.pop("reviewer", None)
     body.pop("role", None)
