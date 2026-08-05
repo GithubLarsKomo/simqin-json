@@ -1,0 +1,119 @@
+from __future__ import annotations
+
+from fastapi.testclient import TestClient
+
+from app.phase6_main import app
+from app.review_store import ReviewDecisionStore
+
+
+client = TestClient(app)
+
+
+def test_review_store_persists_across_instances(tmp_path):
+    database = tmp_path / "reviews.sqlite3"
+    first = ReviewDecisionStore(database)
+    created = first.add_decision(
+        migration_id="mig-1",
+        created_by="author-a",
+        reviewer="reviewer-b",
+        decision="approved",
+    )
+
+    second = ReviewDecisionStore(database)
+    rows = second.list_decisions("mig-1")
+
+    assert len(rows) == 1
+    assert rows[0]["decision_id"] == created["decision_id"]
+    assert rows[0]["decision"] == "approved"
+
+
+def test_review_store_enforces_four_eyes_rule(tmp_path):
+    store = ReviewDecisionStore(tmp_path / "reviews.sqlite3")
+
+    try:
+        store.add_decision(
+            migration_id="mig-1",
+            created_by="author-a",
+            reviewer="author-a",
+            decision="approved",
+        )
+    except ValueError as exc:
+        assert "Four-eyes" in str(exc)
+    else:
+        raise AssertionError("Self-review must be rejected")
+
+
+def test_review_store_requires_comment_for_negative_decisions(tmp_path):
+    store = ReviewDecisionStore(tmp_path / "reviews.sqlite3")
+
+    for decision in ("rejected", "changes_requested"):
+        try:
+            store.add_decision(
+                migration_id="mig-1",
+                created_by="author-a",
+                reviewer="reviewer-b",
+                decision=decision,
+            )
+        except ValueError as exc:
+            assert "Comment is required" in str(exc)
+        else:
+            raise AssertionError(f"{decision} without comment must be rejected")
+
+
+def test_review_store_is_append_only(tmp_path):
+    store = ReviewDecisionStore(tmp_path / "reviews.sqlite3")
+    store.add_decision(
+        migration_id="mig-1",
+        created_by="author-a",
+        reviewer="reviewer-b",
+        decision="changes_requested",
+        comment="Please preserve sentence boundaries.",
+    )
+    store.add_decision(
+        migration_id="mig-1",
+        created_by="author-a",
+        reviewer="reviewer-c",
+        decision="approved",
+    )
+
+    rows = store.list_decisions("mig-1")
+    assert [row["decision"] for row in rows] == ["changes_requested", "approved"]
+
+
+def test_review_api_persists_and_lists_decisions(tmp_path, monkeypatch):
+    monkeypatch.setenv("STORAGE_DIR", str(tmp_path))
+
+    response = client.post(
+        "/api/v1/reviews/migrations/mig-api/decisions",
+        json={
+            "created_by": "author-a",
+            "reviewer": "reviewer-b",
+            "decision": "rejected",
+            "comment": "Segment mapping needs correction.",
+        },
+    )
+    assert response.status_code == 201
+    body = response.json()
+    assert body["migration_id"] == "mig-api"
+    assert body["decision"] == "rejected"
+
+    listed = client.get("/api/v1/reviews/migrations/mig-api/decisions")
+    assert listed.status_code == 200
+    payload = listed.json()
+    assert payload["count"] == 1
+    assert payload["decisions"][0]["comment"] == "Segment mapping needs correction."
+
+
+def test_review_api_rejects_self_review(tmp_path, monkeypatch):
+    monkeypatch.setenv("STORAGE_DIR", str(tmp_path))
+
+    response = client.post(
+        "/api/v1/reviews/migrations/mig-api/decisions",
+        json={
+            "created_by": "author-a",
+            "reviewer": "author-a",
+            "decision": "approved",
+        },
+    )
+    assert response.status_code == 400
+    assert "Four-eyes" in response.json()["detail"]
