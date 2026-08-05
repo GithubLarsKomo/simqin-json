@@ -6,4 +6,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY services/worker/app ./app
 COPY shared ./shared
 EXPOSE 8090
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8090"]
+CMD ["uvicorn", "app.phase6_main:app", "--host", "0.0.0.0", "--port", "8090"]
