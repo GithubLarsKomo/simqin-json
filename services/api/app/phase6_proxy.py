@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 import httpx
@@ -11,6 +12,7 @@ from .main import WORKER_BASE_URL
 
 
 router = APIRouter(prefix="/api/v1", tags=["phase6-content"])
+_REVIEWER_ID = os.getenv("SIMQIN_REVIEWER_ID", "").strip()
 
 
 async def _json_response(response: httpx.Response) -> Any:
@@ -38,9 +40,14 @@ async def phase6_schema(schema_name: str) -> dict[str, Any]:
     return await _json_response(response)
 
 
-async def _post(path: str, body: dict[str, Any]) -> dict[str, Any]:
+async def _post(
+    path: str,
+    body: dict[str, Any],
+    *,
+    headers: dict[str, str] | None = None,
+) -> dict[str, Any]:
     async with httpx.AsyncClient(timeout=30) as client:
-        response = await client.post(f"{WORKER_BASE_URL}{path}", json=body)
+        response = await client.post(f"{WORKER_BASE_URL}{path}", json=body, headers=headers)
     return await _json_response(response)
 
 
@@ -83,4 +90,12 @@ async def phase6_create_migration_review_decision(
     migration_id: str,
     body: dict[str, Any],
 ) -> dict[str, Any]:
-    return await _post(f"/api/v1/reviews/migrations/{migration_id}/decisions", body)
+    if not _REVIEWER_ID:
+        raise HTTPException(status_code=503, detail="SIMQIN_REVIEWER_ID is not configured")
+    body = dict(body)
+    body.pop("reviewer", None)
+    return await _post(
+        f"/api/v1/reviews/migrations/{migration_id}/decisions",
+        body,
+        headers={"X-SIMQIN-Reviewer": _REVIEWER_ID},
+    )
