@@ -14,6 +14,8 @@ from .scoped_content_resolver import resolve_content_tree
 from .phase6_roles import Phase6Principal
 from .release_builder import ReleaseBuildError, build_language_release_snapshot
 from .release_store import ReleaseStore
+from .release_translation import ReleaseTranslationError, build_release_translation_selections
+from .translations import TranslationVariant
 
 
 router = APIRouter(prefix="/api/v1", tags=["phase6-releases"])
@@ -33,6 +35,8 @@ class ReleaseCreatePayload(BaseModel):
     revision_mode: Literal["pinned"] = "pinned"
     configuration_parameters: list[dict[str, Any]] = Field(default_factory=list)
     configuration_values: list[dict[str, Any]] = Field(default_factory=list)
+    translation_variants: list[dict[str, Any]] = Field(default_factory=list)
+    translation_selections: list[dict[str, Any]] = Field(default_factory=list)
     ruleset_revision: str = ""
     terminology_profile_revision: str = ""
     source_release_id: str = ""
@@ -89,6 +93,16 @@ def create_release(
         for row in payload.configuration_parameters:
             catalog.add(ConfigurationParameter.from_dict(row))
         values = [ConfigurationValue.from_dict(row) for row in payload.configuration_values]
+        variants = [TranslationVariant.from_dict(row) for row in payload.translation_variants]
+        translation_selections = build_release_translation_selections(
+            release_id=payload.release_id,
+            release_language=payload.language,
+            objects=objects,
+            resolved_tree=tree,
+            variants=variants,
+            selection_rows=payload.translation_selections,
+            selected_by=principal.user_id,
+        )
         release = build_language_release_snapshot(
             release_id=payload.release_id,
             product_id=payload.product_id,
@@ -97,6 +111,7 @@ def create_release(
             resolved_tree=tree,
             configuration_catalog=catalog,
             configuration_values=values,
+            translation_selections=translation_selections,
             ruleset_revision=payload.ruleset_revision,
             terminology_profile_revision=payload.terminology_profile_revision,
             source_release_id=payload.source_release_id,
@@ -104,6 +119,8 @@ def create_release(
             created_by=principal.user_id,
         )
         return ReleaseStore().add(release)
+    except ReleaseTranslationError as exc:
+        raise HTTPException(status_code=400, detail={"message": str(exc), "findings": exc.findings}) from exc
     except ReleaseBuildError as exc:
         raise HTTPException(status_code=400, detail={"message": str(exc), "findings": exc.findings}) from exc
     except (TypeError, ValueError, KeyError) as exc:
