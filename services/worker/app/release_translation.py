@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
@@ -10,13 +12,69 @@ from .translation_validation import TranslationSelection, validate_translation_v
 from .translations import TranslationVariant
 
 
+_PLACEHOLDER_RE = re.compile(r"\{\{([A-Za-z0-9_.:-]+)\}\}")
+
+
 class ReleaseTranslationError(ValueError):
     def __init__(self, findings: list[dict[str, Any]]) -> None:
         super().__init__("Release translation selection is invalid")
         self.findings = findings
 
 
-def build_release_translation_selections(
+@dataclass(frozen=True)
+class ReleaseTranslationPlan:
+    selections: tuple[TranslationSelection, ...] = field(default_factory=tuple)
+    rendered_block_overrides: dict[int, str] = field(default_factory=dict)
+
+
+def _segment_value(segment: Any, name: str, default: Any = None) -> Any:
+    if isinstance(segment, dict):
+        return segment.get(name, default)
+    return getattr(segment, name, default)
+
+
+def _materialize_translated_template(
+    template: str,
+    source_segments: list[Any],
+    target_segments: list[Any],
+) -> tuple[str | None, str | None]:
+    """Replace exact source segments while preserving all separators/layout text."""
+    ordered = sorted(
+        zip(source_segments, target_segments),
+        key=lambda pair: (_segment_value(pair[0], "order", 0), _segment_value(pair[0], "segment_id", "")),
+    )
+    cursor = 0
+    output: list[str] = []
+    for source, target in ordered:
+        source_text = str(_segment_value(source, "source_text", ""))
+        translated_text = str(_segment_value(target, "translated_text", ""))
+        if not source_text:
+            return None, "Source segment text is empty and cannot be materialized deterministically"
+        position = template.find(source_text, cursor)
+        if position < 0:
+            return None, f"Source segment {source_text!r} is not present in the resolved template"
+        output.append(template[cursor:position])
+        output.append(translated_text)
+        cursor = position + len(source_text)
+    output.append(template[cursor:])
+    return "".join(output), None
+
+
+def _render_slots(template: str, values: dict[str, Any]) -> tuple[str, list[str]]:
+    missing: list[str] = []
+
+    def replace(match: re.Match[str]) -> str:
+        slot_id = match.group(1)
+        if slot_id not in values:
+            missing.append(slot_id)
+            return match.group(0)
+        value = values[slot_id]
+        return "" if value is None else str(value)
+
+    return _PLACEHOLDER_RE.sub(replace, template), sorted(set(missing))
+
+
+def build_release_translation_plan(
     *,
     release_id: str,
     release_language: str,
@@ -25,8 +83,8 @@ def build_release_translation_selections(
     variants: list[TranslationVariant],
     selection_rows: list[dict[str, Any]],
     selected_by: str,
-) -> list[TranslationSelection]:
-    """Validate explicit translation pins against resolved content revisions.
+) -> ReleaseTranslationPlan:
+    """Validate explicit translation pins and materialize target-language blocks.
 
     Canonical-language blocks need no translation selection. Every resolved block
     whose canonical language differs from the release language requires exactly
@@ -57,6 +115,7 @@ def build_release_translation_selections(
         selections_by_object[object_id] = row
 
     resolved_pairs = sorted({(block.source_object_id, block.source_revision) for block in resolved_tree.blocks})
+    selection_by_pair: dict[tuple[str, int], tuple[TranslationSelection, TranslationVariant]] = {}
     results: list[TranslationSelection] = []
     now = datetime.now(timezone.utc).isoformat()
 
@@ -90,6 +149,7 @@ def build_release_translation_selections(
                 "object_id": object_id,
             })
             continue
+        before = len(findings)
         if variant.content_object_id != object_id:
             findings.append({
                 "code": "translation-object-mismatch",
@@ -137,10 +197,9 @@ def build_release_translation_selections(
             "index": item.index,
         } for item in validation_findings)
 
-        object_errors = [item for item in findings if item.get("object_id") == object_id]
-        if object_errors:
+        if len(findings) != before:
             continue
-        results.append(TranslationSelection(
+        selection = TranslationSelection(
             working_version_id=release_id,
             content_object_id=object_id,
             canonical_revision=canonical_revision,
@@ -149,7 +208,9 @@ def build_release_translation_selections(
             translation_revision=variant.revision,
             selected_by=selected_by,
             selected_at=now,
-        ))
+        )
+        results.append(selection)
+        selection_by_pair[(object_id, canonical_revision)] = (selection, variant)
 
     unexpected = sorted(set(selections_by_object) - {object_id for object_id, _ in resolved_pairs})
     for object_id in unexpected:
@@ -159,6 +220,49 @@ def build_release_translation_selections(
             "object_id": object_id,
         })
 
+    rendered_overrides: dict[int, str] = {}
+    if not findings:
+        for index, block in enumerate(resolved_tree.blocks):
+            obj = objects.get(block.source_object_id)
+            if obj is None or obj.canonical_language == release_language:
+                continue
+            selected = selection_by_pair.get((block.source_object_id, block.source_revision))
+            if selected is None:
+                findings.append({
+                    "code": "translation-selection-required",
+                    "message": f"No validated translation selection exists for {block.source_object_id}@{block.source_revision}",
+                    "object_id": block.source_object_id,
+                })
+                continue
+            _, variant = selected
+            source_revision = obj.get_revision(block.source_revision)
+            translated_template, materialization_error = _materialize_translated_template(
+                block.source_template_content,
+                list(source_revision.sentence_segments) if source_revision else [],
+                list(variant.segment_translations),
+            )
+            if materialization_error or translated_template is None:
+                findings.append({
+                    "code": "translation-materialization-failed",
+                    "message": materialization_error or "Translation materialization failed",
+                    "object_id": block.source_object_id,
+                    "canonical_revision": block.source_revision,
+                })
+                continue
+            rendered, missing_slots = _render_slots(translated_template, dict(block.slot_values))
+            if missing_slots:
+                findings.append({
+                    "code": "translation-unresolved-slot",
+                    "message": f"Translated block contains unresolved slots: {', '.join(missing_slots)}",
+                    "object_id": block.source_object_id,
+                    "canonical_revision": block.source_revision,
+                })
+                continue
+            rendered_overrides[index] = rendered
+
     if findings:
         raise ReleaseTranslationError(findings)
-    return sorted(results, key=lambda item: (item.content_object_id, item.target_language, item.translation_variant_id, item.translation_revision))
+    return ReleaseTranslationPlan(
+        selections=tuple(sorted(results, key=lambda item: (item.content_object_id, item.target_language, item.translation_variant_id, item.translation_revision))),
+        rendered_block_overrides=rendered_overrides,
+    )
