@@ -4,7 +4,23 @@
   "title": "IFULanguageReleaseSnapshot",
   "type": "object",
   "additionalProperties": false,
-  "required": ["release_id", "product_id", "language", "version", "content_bindings", "configuration_snapshot", "resolved_blocks", "provenance", "release_checksum"],
+  "required": [
+    "release_id",
+    "product_id",
+    "language",
+    "version",
+    "content_bindings",
+    "translation_bindings",
+    "configuration_snapshot",
+    "resolved_blocks",
+    "ruleset_revision",
+    "terminology_profile_revision",
+    "provenance",
+    "source_release_id",
+    "created_at",
+    "created_by",
+    "release_checksum"
+  ],
   "properties": {
     "release_id": {"type": "string", "minLength": 1},
     "product_id": {"type": "string", "minLength": 1},
@@ -23,14 +39,76 @@
         }
       }
     },
-    "translation_bindings": {"type": "array", "items": {"type": "object"}},
-    "configuration_snapshot": {"type": "object"},
-    "resolved_blocks": {"type": "array", "items": {"type": "object"}},
+    "translation_bindings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["content_object_id", "target_language", "variant_id", "revision", "canonical_revision"],
+        "properties": {
+          "content_object_id": {"type": "string", "minLength": 1},
+          "target_language": {"type": "string", "minLength": 2},
+          "variant_id": {"type": "string", "minLength": 1},
+          "revision": {"type": "integer", "minimum": 1},
+          "canonical_revision": {"type": "integer", "minimum": 1}
+        }
+      }
+    },
+    "configuration_snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["parameters"],
+      "properties": {
+        "parameters": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["parameter_id", "parameter_revision", "value", "source", "set_by", "set_at"],
+            "properties": {
+              "parameter_id": {"type": "string", "minLength": 1},
+              "parameter_revision": {"type": "integer", "minimum": 1},
+              "value": {},
+              "source": {"type": "string"},
+              "set_by": {"type": "string"},
+              "set_at": {"type": "string"}
+            }
+          }
+        }
+      }
+    },
+    "resolved_blocks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["block_id", "source_object_id", "source_revision", "rendered_content", "block_type"],
+        "properties": {
+          "block_id": {"type": "string", "minLength": 1},
+          "source_object_id": {"type": "string", "minLength": 1},
+          "source_revision": {"type": "integer", "minimum": 1},
+          "rendered_content": {"type": "string"},
+          "block_type": {"type": "string", "minLength": 1}
+        }
+      }
+    },
     "ruleset_revision": {"type": "string"},
     "terminology_profile_revision": {"type": "string"},
-    "provenance": {"type": "object"},
-    "created_at": {"type": "string"},
-    "created_by": {"type": "string"},
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["resolution_checksum", "graph_checksum", "configuration_hash", "resolution_mode", "object_revisions_read", "aliases_followed"],
+      "properties": {
+        "resolution_checksum": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "graph_checksum": {"type": "string"},
+        "configuration_hash": {"type": "string"},
+        "resolution_mode": {"const": "pinned"},
+        "object_revisions_read": {"type": "array", "items": {"type": "string"}},
+        "aliases_followed": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "created_at": {"type": "string", "minLength": 1},
+    "created_by": {"type": "string", "minLength": 1},
     "release_checksum": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
   }
 }
