@@ -14,7 +14,7 @@ from .scoped_content_resolver import resolve_content_tree
 from .phase6_roles import Phase6Principal
 from .release_builder import ReleaseBuildError, build_language_release_snapshot
 from .release_store import ReleaseStore
-from .release_translation import ReleaseTranslationError, build_release_translation_selections
+from .release_translation import ReleaseTranslationError, build_release_translation_plan
 from .translations import TranslationVariant
 
 
@@ -94,7 +94,7 @@ def create_release(
             catalog.add(ConfigurationParameter.from_dict(row))
         values = [ConfigurationValue.from_dict(row) for row in payload.configuration_values]
         variants = [TranslationVariant.from_dict(row) for row in payload.translation_variants]
-        translation_selections = build_release_translation_selections(
+        translation_plan = build_release_translation_plan(
             release_id=payload.release_id,
             release_language=payload.language,
             objects=objects,
@@ -111,7 +111,8 @@ def create_release(
             resolved_tree=tree,
             configuration_catalog=catalog,
             configuration_values=values,
-            translation_selections=translation_selections,
+            translation_selections=translation_plan.selections,
+            rendered_block_overrides=translation_plan.rendered_block_overrides,
             ruleset_revision=payload.ruleset_revision,
             terminology_profile_revision=payload.terminology_profile_revision,
             source_release_id=payload.source_release_id,
