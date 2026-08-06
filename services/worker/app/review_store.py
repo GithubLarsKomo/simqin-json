@@ -127,7 +127,7 @@ class ReviewDecisionStore:
                        decision, comment, decided_at
                 FROM phase6_review_decisions
                 WHERE migration_id = ?
-                ORDER BY decided_at ASC, decision_id ASC
+                ORDER BY rowid ASC
                 """,
                 (migration_id,),
             ).fetchall()
