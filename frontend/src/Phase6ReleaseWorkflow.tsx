@@ -2,6 +2,14 @@ import React, { useEffect, useMemo, useState } from 'react';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080';
 
+type TranslationBinding = {
+  content_object_id: string;
+  target_language: string;
+  variant_id: string;
+  revision: number;
+  canonical_revision: number;
+};
+
 type ReleaseSummary = {
   release_id: string;
   product_id: string;
@@ -10,6 +18,7 @@ type ReleaseSummary = {
   created_at: string;
   created_by: string;
   release_checksum: string;
+  translation_bindings?: TranslationBinding[];
   provenance?: { resolution_mode?: string; resolution_checksum?: string };
 };
 
@@ -94,13 +103,18 @@ export default function Phase6ReleaseWorkflow({ resolvePayload }: Props) {
           language,
           version,
           revision_mode: 'pinned',
-          configuration_parameters: [],
-          configuration_values: [],
+          configuration_parameters: resolvePayload.configuration_parameters || [],
+          configuration_values: resolvePayload.configuration_values || [],
+          translation_variants: resolvePayload.translation_variants || [],
+          translation_selections: resolvePayload.translation_selections || [],
         }),
       });
       if (!response.ok) throw new Error(errorDetail(await response.text()));
       const release = await response.json() as ReleaseSummary;
-      setMessage(`Release gespeichert: ${release.release_id} · ${release.release_checksum.slice(0, 16)}…`);
+      const translationText = release.translation_bindings?.length
+        ? ` · ${release.translation_bindings.length} Übersetzungs-Pin(s)`
+        : '';
+      setMessage(`Release gespeichert: ${release.release_id} · ${release.release_checksum.slice(0, 16)}…${translationText}`);
       await loadReleases();
     } catch (reason) {
       setMessage(String(reason));
@@ -115,7 +129,7 @@ export default function Phase6ReleaseWorkflow({ resolvePayload }: Props) {
         <h2>Release</h2>
         <span className={`badge ${pinned ? 'badge-info' : 'badge-warning'}`}>{pinned ? 'pinned' : 'not releasable'}</span>
       </div>
-      <p>Der Server validiert erneut und erzeugt den immutable Snapshot nur für eine vertrauenswürdige Approver-Identität.</p>
+      <p>Der Server validiert erneut und erzeugt den immutable Snapshot nur für eine vertrauenswürdige Approver-Identität. Fremdsprachen-Releases benötigen explizit freigegebene, revisionsgepinnte Übersetzungen.</p>
       <div className="three-panel-layout">
         <label className="panel">Produkt-ID<input value={productId} onChange={(event) => setProductId(event.target.value)} style={{ width: '100%' }} /></label>
         <label className="panel">Sprache<input value={language} onChange={(event) => setLanguage(event.target.value)} style={{ width: '100%' }} /></label>
@@ -132,13 +146,16 @@ export default function Phase6ReleaseWorkflow({ resolvePayload }: Props) {
         <summary>Release-Historie ({releases.length})</summary>
         {releases.length === 0 ? <p>Noch keine Releases gespeichert.</p> : (
           <table className="validation-table">
-            <thead><tr><th>Release</th><th>Produkt</th><th>Sprache</th><th>Version</th><th>Erstellt von</th><th>Checksum</th></tr></thead>
+            <thead><tr><th>Release</th><th>Produkt</th><th>Sprache</th><th>Version</th><th>Übersetzungen</th><th>Erstellt von</th><th>Checksum</th></tr></thead>
             <tbody>{releases.map((release) => (
               <tr key={release.release_id}>
                 <td><code>{release.release_id}</code></td>
                 <td>{release.product_id}</td>
                 <td>{release.language}</td>
                 <td>{release.version}</td>
+                <td title={(release.translation_bindings || []).map((item) => `${item.content_object_id}: ${item.variant_id}@${item.revision} ← canonical@${item.canonical_revision}`).join('\n')}>
+                  {release.translation_bindings?.length || 0}
+                </td>
                 <td>{release.created_by}</td>
                 <td><code>{release.release_checksum.slice(0, 16)}…</code></td>
               </tr>
