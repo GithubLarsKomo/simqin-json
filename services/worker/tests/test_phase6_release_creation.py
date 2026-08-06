@@ -1,6 +1,11 @@
 from __future__ import annotations
 
+import json
+import sqlite3
+from pathlib import Path
+
 from fastapi.testclient import TestClient
+from jsonschema import Draft202012Validator
 
 from app.phase6_main import app
 
@@ -59,6 +64,11 @@ def _payload(release_id: str = "rel-1", version: int = 1) -> dict:
     }
 
 
+def _release_schema() -> dict:
+    path = Path(__file__).parents[1] / "schemas" / "phase6" / "ifu-language-release.schema.json"
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
 def test_release_creation_requires_approver(tmp_path, monkeypatch):
     monkeypatch.setenv("STORAGE_DIR", str(tmp_path))
     response = client.post("/api/v1/ifu/releases", headers=_REVIEWER, json=_payload())
@@ -74,6 +84,7 @@ def test_release_creation_is_pinned_immutable_and_persistent(tmp_path, monkeypat
     assert body["provenance"]["resolution_mode"] == "pinned"
     assert body["resolved_blocks"][0]["rendered_content"] == "Hello Alice"
     assert body["release_checksum"]
+    Draft202012Validator(_release_schema()).validate(body)
 
     fetched = client.get("/api/v1/ifu/releases/rel-1")
     assert fetched.status_code == 200
@@ -97,3 +108,32 @@ def test_release_creation_rejects_unresolved_required_slot(tmp_path, monkeypatch
     assert response.status_code == 400
     detail = response.json()["detail"]
     assert "findings" in detail
+
+
+def test_release_read_detects_stored_payload_tampering(tmp_path, monkeypatch):
+    monkeypatch.setenv("STORAGE_DIR", str(tmp_path))
+    created = client.post("/api/v1/ifu/releases", headers=_APPROVER, json=_payload())
+    assert created.status_code == 201
+
+    database = tmp_path / "phase6-releases.sqlite3"
+    with sqlite3.connect(database) as connection:
+        row = connection.execute(
+            "SELECT payload_json FROM ifu_language_releases WHERE release_id = ?",
+            ("rel-1",),
+        ).fetchone()
+        payload = json.loads(row[0])
+        payload["resolved_blocks"][0]["rendered_content"] = "Tampered"
+        connection.execute(
+            "UPDATE ifu_language_releases SET payload_json = ? WHERE release_id = ?",
+            (json.dumps(payload, sort_keys=True), "rel-1"),
+        )
+
+    fetched = client.get("/api/v1/ifu/releases/rel-1")
+    assert fetched.status_code == 500
+    detail = fetched.json()["detail"]
+    assert detail["message"] == "Stored release integrity check failed"
+    assert "failed checksum verification" in detail["reason"]
+
+    listed = client.get("/api/v1/ifu/releases")
+    assert listed.status_code == 500
+    assert listed.json()["detail"]["message"] == "Stored release integrity check failed"
