@@ -70,7 +70,7 @@ def test_validation_engine_returns_exact_slot_and_revision_codes():
     ]
     result = validate_content_domain({"root": obj})
     codes = [issue.code for issue in result.issues]
-    assert codes == ["unresolved-slot", "missing-content-object"]
+    assert codes == ["unresolved-required-slot", "missing-content-object"]
     assert result.valid is False
 
 
