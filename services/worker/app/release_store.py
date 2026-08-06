@@ -47,6 +47,17 @@ class ReleaseStore:
                 "ON ifu_language_releases(product_id, language, version)"
             )
 
+    @staticmethod
+    def _verified_payload(payload_json: str) -> dict[str, Any]:
+        try:
+            payload = json.loads(payload_json)
+            release = IFULanguageReleaseSnapshot.from_dict(payload)
+        except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+            raise ValueError("Stored release payload is invalid") from exc
+        if not release.verify_checksum():
+            raise ValueError(f"Stored release {release.release_id} failed checksum verification")
+        return release.to_dict()
+
     def add(self, release: IFULanguageReleaseSnapshot) -> dict[str, Any]:
         payload = release.to_dict()
         if not release.verify_checksum():
@@ -78,11 +89,11 @@ class ReleaseStore:
                 "SELECT payload_json FROM ifu_language_releases WHERE release_id = ?",
                 (release_id,),
             ).fetchone()
-        return json.loads(row["payload_json"]) if row else None
+        return self._verified_payload(row["payload_json"]) if row else None
 
     def list(self) -> list[dict[str, Any]]:
         with self._connect() as connection:
             rows = connection.execute(
                 "SELECT payload_json FROM ifu_language_releases ORDER BY product_id, language, version"
             ).fetchall()
-        return [json.loads(row["payload_json"]) for row in rows]
+        return [self._verified_payload(row["payload_json"]) for row in rows]
