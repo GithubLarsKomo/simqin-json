@@ -36,12 +36,12 @@ def _payload(release_id: str = "rel-1", version: int = 1) -> dict:
                     {
                         "object_id": "root",
                         "revision": 1,
-                        "canonical_content": "Hello {{name}}",
+                        "canonical_content": "Hallo {{name}}.",
                         "sentence_segments": [
                             {
                                 "segment_id": "seg-1",
                                 "segment_type": "sentence",
-                                "source_text": "Hello {{name}}",
+                                "source_text": "Hallo {{name}}.",
                                 "source_revision": 1,
                                 "order": 0,
                                 "immutable_boundary": True,
@@ -64,6 +64,38 @@ def _payload(release_id: str = "rel-1", version: int = 1) -> dict:
     }
 
 
+def _translated_payload(
+    release_id: str = "rel-en",
+    *,
+    variant_status: str = "approved",
+    canonical_revision: int = 1,
+) -> dict:
+    payload = _payload(release_id)
+    payload["language"] = "en-US"
+    payload["translation_variants"] = [
+        {
+            "id": "tr-root-en",
+            "content_object_id": "root",
+            "canonical_revision": canonical_revision,
+            "target_language": "en-US",
+            "revision": 3,
+            "status": variant_status,
+            "segment_translations": [
+                {
+                    "segment_id": "seg-1",
+                    "source_text": "Hallo {{name}}.",
+                    "translated_text": "Hello {{name}}.",
+                    "order": 0,
+                }
+            ],
+        }
+    ]
+    payload["translation_selections"] = [
+        {"content_object_id": "root", "variant_id": "tr-root-en", "revision": 3}
+    ]
+    return payload
+
+
 def _release_schema() -> dict:
     path = Path(__file__).parents[1] / "schemas" / "phase6" / "ifu-language-release.schema.json"
     return json.loads(path.read_text(encoding="utf-8"))
@@ -82,7 +114,7 @@ def test_release_creation_is_pinned_immutable_and_persistent(tmp_path, monkeypat
     body = created.json()
     assert body["created_by"] == "approver-a"
     assert body["provenance"]["resolution_mode"] == "pinned"
-    assert body["resolved_blocks"][0]["rendered_content"] == "Hello Alice"
+    assert body["resolved_blocks"][0]["rendered_content"] == "Hallo Alice."
     assert body["release_checksum"]
     Draft202012Validator(_release_schema()).validate(body)
 
@@ -137,3 +169,50 @@ def test_release_read_detects_stored_payload_tampering(tmp_path, monkeypatch):
     listed = client.get("/api/v1/ifu/releases")
     assert listed.status_code == 500
     assert listed.json()["detail"]["message"] == "Stored release integrity check failed"
+
+
+def test_translated_release_materializes_approved_exact_revision(tmp_path, monkeypatch):
+    monkeypatch.setenv("STORAGE_DIR", str(tmp_path))
+    response = client.post(
+        "/api/v1/ifu/releases",
+        headers=_APPROVER,
+        json=_translated_payload(),
+    )
+    assert response.status_code == 201
+    body = response.json()
+    assert body["language"] == "en-US"
+    assert body["resolved_blocks"][0]["rendered_content"] == "Hello Alice."
+    assert body["translation_bindings"] == [
+        {
+            "content_object_id": "root",
+            "target_language": "en-US",
+            "variant_id": "tr-root-en",
+            "revision": 3,
+            "canonical_revision": 1,
+        }
+    ]
+    Draft202012Validator(_release_schema()).validate(body)
+
+
+def test_translated_release_requires_approved_variant(tmp_path, monkeypatch):
+    monkeypatch.setenv("STORAGE_DIR", str(tmp_path))
+    response = client.post(
+        "/api/v1/ifu/releases",
+        headers=_APPROVER,
+        json=_translated_payload("rel-draft", variant_status="reviewed"),
+    )
+    assert response.status_code == 400
+    findings = response.json()["detail"]["findings"]
+    assert "translation-not-approved" in {item["code"] for item in findings}
+
+
+def test_translated_release_requires_exact_canonical_revision(tmp_path, monkeypatch):
+    monkeypatch.setenv("STORAGE_DIR", str(tmp_path))
+    response = client.post(
+        "/api/v1/ifu/releases",
+        headers=_APPROVER,
+        json=_translated_payload("rel-wrong-rev", canonical_revision=2),
+    )
+    assert response.status_code == 400
+    findings = response.json()["detail"]["findings"]
+    assert "translation-canonical-revision-mismatch" in {item["code"] for item in findings}
