@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 
 from .content_build_graph import content_graph_report
 from .content_objects import ContentObject, MultiplicityRule
-from .content_resolver import resolve_content_tree
+from .scoped_content_resolver import resolve_content_tree
 from .content_segment import ContentSegment
 from .ifu_release import IFULanguageReleaseSnapshot
 from .phase6_roles import Phase6Principal
