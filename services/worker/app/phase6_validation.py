@@ -10,6 +10,7 @@ from .content_build_graph import build_content_graph
 from .content_objects import ContentObject
 from .content_segment import ContentSegment, validate_segments
 from .slot_validation import validate_slot_definition, validate_slot_value
+from .slot_values import resolve_slot_value
 from .translation_validation import validate_translation_variant
 from .translations import TranslationVariant
 
@@ -135,12 +136,20 @@ def validate_content_domain(
                     ))
                 seen_slots.add(slot.slot_id)
                 _add_findings(result, validate_slot_definition(slot), object_id, revision.revision)
-                if slot.slot_id in slot_values:
-                    _add_findings(result, validate_slot_value(slot, slot_values[slot.slot_id]), object_id, revision.revision)
-                elif slot.required and slot.default_value in (None, "", []):
+                value, source_key = resolve_slot_value(
+                    slot_values,
+                    object_id=object_id,
+                    revision=revision.revision,
+                    slot_id=slot.slot_id,
+                    default=slot.default_value,
+                )
+                if source_key or value not in (None, "", []):
+                    _add_findings(result, validate_slot_value(slot, value), object_id, revision.revision)
+                elif slot.required:
                     result.add(Phase6ValidationIssue(
-                        "ERROR", "unresolved-slot",
+                        "ERROR", "unresolved-required-slot",
                         f"Required slot {slot.slot_id} has no value", object_id, revision.revision,
+                        details={"slot_id": slot.slot_id},
                     ))
 
             for placement in validate_composition_placements(revision.composed_objects):
