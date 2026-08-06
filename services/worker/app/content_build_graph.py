@@ -39,6 +39,15 @@ def _revision_node_id(object_id: str, revision: int) -> str:
     return f"content-revision:{object_id}@{revision}"
 
 
+def _segment_id(segment: Any) -> str:
+    value = getattr(segment, "segment_id", None)
+    if value is not None:
+        return str(value)
+    if isinstance(segment, dict):
+        return str(segment.get("segment_id", ""))
+    return ""
+
+
 def extend_build_graph_with_content(
     graph: BuildGraph,
     objects: dict[str, ContentObject],
@@ -81,7 +90,7 @@ def extend_build_graph_with_content(
                 graph.add_edge(revision_node, rule_node, "controlled-by")
 
             for segment in revision.sentence_segments:
-                segment_id = getattr(segment, "segment_id", None) or segment.get("segment_id", "")
+                segment_id = _segment_id(segment)
                 segment_node = f"segment:{object_id}@{revision.revision}:{segment_id}"
                 graph.add_node(GraphNode(segment_node, "sentence-segment", segment_id))
                 graph.add_edge(revision_node, segment_node, "contains")
