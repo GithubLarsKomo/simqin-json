@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 
 from .configuration import ConfigurationCatalog, ConfigurationParameter, ConfigurationValue
 from .content_objects import ContentObject, MultiplicityRule
-from .content_resolver import resolve_content_tree
+from .scoped_content_resolver import resolve_content_tree
 from .phase6_roles import Phase6Principal
 from .release_builder import ReleaseBuildError, build_language_release_snapshot
 from .release_store import ReleaseStore
