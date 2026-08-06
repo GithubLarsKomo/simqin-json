@@ -59,6 +59,13 @@ def _objects(rows: list[dict[str, Any]]) -> dict[str, ContentObject]:
     return parsed
 
 
+def _integrity_error(exc: ValueError) -> HTTPException:
+    return HTTPException(
+        status_code=500,
+        detail={"message": "Stored release integrity check failed", "reason": str(exc)},
+    )
+
+
 @router.post("/ifu/releases", status_code=201)
 def create_release(
     payload: ReleaseCreatePayload,
@@ -105,13 +112,19 @@ def create_release(
 
 @router.get("/ifu/releases")
 def list_releases() -> dict[str, Any]:
-    releases = ReleaseStore().list()
+    try:
+        releases = ReleaseStore().list()
+    except ValueError as exc:
+        raise _integrity_error(exc) from exc
     return {"releases": releases, "count": len(releases)}
 
 
 @router.get("/ifu/releases/{release_id}")
 def get_release(release_id: str) -> dict[str, Any]:
-    release = ReleaseStore().get(release_id)
+    try:
+        release = ReleaseStore().get(release_id)
+    except ValueError as exc:
+        raise _integrity_error(exc) from exc
     if release is None:
         raise HTTPException(status_code=404, detail="Release not found")
     return release
