@@ -29,7 +29,8 @@ def build_language_release_snapshot(
     resolved_tree: Any,
     configuration_catalog: ConfigurationCatalog,
     configuration_values: list[ConfigurationValue],
-    translation_selections: list[TranslationSelection] | None = None,
+    translation_selections: list[TranslationSelection] | tuple[TranslationSelection, ...] | None = None,
+    rendered_block_overrides: dict[int, str] | None = None,
     ruleset_revision: str = "",
     terminology_profile_revision: str = "",
     source_release_id: str = "",
@@ -59,15 +60,16 @@ def build_language_release_snapshot(
 
     content_pairs = sorted({(block.source_object_id, block.source_revision) for block in resolved_tree.blocks})
     content_bindings = tuple(ContentRevisionBinding(object_id, revision) for object_id, revision in content_pairs)
+    overrides = rendered_block_overrides or {}
     resolved_blocks = tuple(
         ResolvedBlockSnapshot(
             block_id=block.block_id,
             source_object_id=block.source_object_id,
             source_revision=block.source_revision,
-            rendered_content=block.rendered_content,
+            rendered_content=overrides.get(index, block.rendered_content),
             block_type=block.block_type,
         )
-        for block in resolved_tree.blocks
+        for index, block in enumerate(resolved_tree.blocks)
     )
 
     selections = sorted(
