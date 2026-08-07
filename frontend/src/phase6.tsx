@@ -16,6 +16,27 @@ const DEMO_RESOLVE_PAYLOAD = {
     analyte: 'Anti-dsDNA IgG',
     sample_type: 'Serum oder Plasma',
   },
+  translation_variants: [
+    {
+      id: 'tr-elisa-intended-purpose-demo-en',
+      content_object_id: 'elisa-intended-purpose-demo',
+      canonical_revision: 1,
+      target_language: 'en-US',
+      revision: 1,
+      status: 'approved',
+      applicability: {},
+      segment_translations: [
+        {
+          segment_id: 'purpose-1',
+          source_text: 'Der ELISA dient dem Nachweis von {{analyte}} in {{sample_type}}.',
+          translated_text: 'The ELISA is intended for the detection of {{analyte}} in {{sample_type}}.',
+          order: 0,
+        },
+      ],
+      provider_metadata: { source: 'demo' },
+      created_by: 'reviewer-b',
+    },
+  ],
   objects: [
     {
       id: 'elisa-intended-purpose-demo',
