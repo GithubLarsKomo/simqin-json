@@ -108,6 +108,7 @@ jobs:
           from app.phase6_main import app
           paths = {route.path for route in app.routes}
           required = {
+              '/api/v1/session',
               '/api/v1/content/schemas',
               '/api/v1/content/graph',
               '/api/v1/content/validate',
