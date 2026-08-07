@@ -10,6 +10,21 @@ type TranslationBinding = {
   canonical_revision: number;
 };
 
+type TranslationVariant = {
+  id: string;
+  content_object_id: string;
+  canonical_revision: number;
+  target_language: string;
+  revision: number;
+  status: string;
+  created_by?: string;
+};
+
+type ContentObject = {
+  id: string;
+  canonical_language: string;
+};
+
 type ReleaseSummary = {
   release_id: string;
   product_id: string;
@@ -26,6 +41,8 @@ type Props = {
   resolvePayload?: Record<string, unknown>;
 };
 
+type SelectionMap = Record<string, string>;
+
 function errorDetail(raw: string): string {
   try {
     const parsed = JSON.parse(raw) as { detail?: string | { message?: string; findings?: Array<{ message?: string }> } };
@@ -40,6 +57,10 @@ function errorDetail(raw: string): string {
   return raw;
 }
 
+function variantKey(variant: TranslationVariant): string {
+  return `${variant.id}@@${variant.revision}`;
+}
+
 export default function Phase6ReleaseWorkflow({ resolvePayload }: Props) {
   const [productId, setProductId] = useState('elisa-demo');
   const [language, setLanguage] = useState('de-DE');
@@ -47,13 +68,49 @@ export default function Phase6ReleaseWorkflow({ resolvePayload }: Props) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [releases, setReleases] = useState<ReleaseSummary[]>([]);
+  const [translationSelections, setTranslationSelections] = useState<SelectionMap>({});
 
   const pinned = resolvePayload?.revision_mode === 'pinned';
+  const objects = useMemo(() => (resolvePayload?.objects || []) as ContentObject[], [resolvePayload]);
+  const variants = useMemo(() => (resolvePayload?.translation_variants || []) as TranslationVariant[], [resolvePayload]);
+  const pins = useMemo(() => (resolvePayload?.pinned_revisions || {}) as Record<string, number>, [resolvePayload]);
+
+  const requiredTranslations = useMemo(() => objects
+    .filter((item) => item.canonical_language && item.canonical_language !== language)
+    .map((item) => ({ object: item, canonicalRevision: pins[item.id] }))
+    .filter((item) => Number.isInteger(item.canonicalRevision) && item.canonicalRevision > 0), [objects, language, pins]);
+
+  const missingTranslations = useMemo(() => requiredTranslations.filter(({ object, canonicalRevision }) => {
+    const selected = translationSelections[object.id];
+    if (!selected) return true;
+    const candidate = variants.find((variant) => variantKey(variant) === selected);
+    return !candidate
+      || candidate.status !== 'approved'
+      || candidate.target_language !== language
+      || candidate.canonical_revision !== canonicalRevision;
+  }), [requiredTranslations, translationSelections, variants, language]);
+
   const blockingHint = useMemo(() => {
     if (!resolvePayload) return 'Kein Resolver-Payload vorhanden.';
     if (!pinned) return 'Release gesperrt: Resolver muss im Modus pinned laufen.';
+    if (missingTranslations.length > 0) return `Release gesperrt: ${missingTranslations.length} Übersetzung(en) müssen explizit freigegeben und gepinnt werden.`;
     return '';
-  }, [resolvePayload, pinned]);
+  }, [resolvePayload, pinned, missingTranslations]);
+
+  useEffect(() => {
+    setTranslationSelections((current) => {
+      const next: SelectionMap = {};
+      for (const { object, canonicalRevision } of requiredTranslations) {
+        const existing = current[object.id];
+        const validExisting = variants.find((variant) => variantKey(variant) === existing
+          && variant.status === 'approved'
+          && variant.target_language === language
+          && variant.canonical_revision === canonicalRevision);
+        if (validExisting) next[object.id] = existing;
+      }
+      return next;
+    });
+  }, [language, requiredTranslations, variants]);
 
   async function loadReleases() {
     try {
@@ -68,8 +125,20 @@ export default function Phase6ReleaseWorkflow({ resolvePayload }: Props) {
 
   useEffect(() => { void loadReleases(); }, []);
 
+  function selectedRows() {
+    return requiredTranslations.map(({ object }) => {
+      const selected = translationSelections[object.id];
+      const variant = variants.find((item) => variantKey(item) === selected);
+      return variant ? {
+        content_object_id: object.id,
+        variant_id: variant.id,
+        revision: variant.revision,
+      } : null;
+    }).filter(Boolean);
+  }
+
   async function validateAndRelease() {
-    if (!resolvePayload || !pinned) {
+    if (!resolvePayload || !pinned || missingTranslations.length > 0) {
       setMessage(blockingHint);
       return;
     }
@@ -105,8 +174,8 @@ export default function Phase6ReleaseWorkflow({ resolvePayload }: Props) {
           revision_mode: 'pinned',
           configuration_parameters: resolvePayload.configuration_parameters || [],
           configuration_values: resolvePayload.configuration_values || [],
-          translation_variants: resolvePayload.translation_variants || [],
-          translation_selections: resolvePayload.translation_selections || [],
+          translation_variants: variants,
+          translation_selections: selectedRows(),
         }),
       });
       if (!response.ok) throw new Error(errorDetail(await response.text()));
@@ -127,7 +196,9 @@ export default function Phase6ReleaseWorkflow({ resolvePayload }: Props) {
     <div className="card" style={{ marginTop: 12 }}>
       <div className="section-header">
         <h2>Release</h2>
-        <span className={`badge ${pinned ? 'badge-info' : 'badge-warning'}`}>{pinned ? 'pinned' : 'not releasable'}</span>
+        <span className={`badge ${pinned && missingTranslations.length === 0 ? 'badge-info' : 'badge-warning'}`}>
+          {pinned && missingTranslations.length === 0 ? 'releasable' : 'not releasable'}
+        </span>
       </div>
       <p>Der Server validiert erneut und erzeugt den immutable Snapshot nur für eine vertrauenswürdige Approver-Identität. Fremdsprachen-Releases benötigen explizit freigegebene, revisionsgepinnte Übersetzungen.</p>
       <div className="three-panel-layout">
@@ -135,9 +206,47 @@ export default function Phase6ReleaseWorkflow({ resolvePayload }: Props) {
         <label className="panel">Sprache<input value={language} onChange={(event) => setLanguage(event.target.value)} style={{ width: '100%' }} /></label>
         <label className="panel">Version<input type="number" min={1} value={version} onChange={(event) => setVersion(Math.max(1, Number(event.target.value) || 1))} style={{ width: '100%' }} /></label>
       </div>
+
+      {requiredTranslations.length > 0 && (
+        <div className="card" style={{ marginTop: 12 }}>
+          <div className="section-header"><strong>Translation Pins</strong><span className="badge badge-info">explizite Auswahl</span></div>
+          <table className="validation-table">
+            <thead><tr><th>Content Object</th><th>Kanonisch</th><th>Zielsprache</th><th>Translation Variant</th></tr></thead>
+            <tbody>{requiredTranslations.map(({ object, canonicalRevision }) => {
+              const candidates = variants.filter((variant) => variant.content_object_id === object.id
+                && variant.target_language === language
+                && variant.canonical_revision === canonicalRevision);
+              return (
+                <tr key={object.id}>
+                  <td><code>{object.id}</code></td>
+                  <td>{object.canonical_language} @ {canonicalRevision}</td>
+                  <td>{language}</td>
+                  <td>
+                    <select
+                      aria-label={`Translation ${object.id}`}
+                      value={translationSelections[object.id] || ''}
+                      onChange={(event) => setTranslationSelections((current) => ({ ...current, [object.id]: event.target.value }))}
+                      style={{ width: '100%' }}
+                    >
+                      <option value="">— explizit auswählen —</option>
+                      {candidates.map((variant) => (
+                        <option key={variantKey(variant)} value={variantKey(variant)} disabled={variant.status !== 'approved'}>
+                          {variant.id}@{variant.revision} · {variant.status}{variant.created_by ? ` · ${variant.created_by}` : ''}
+                        </option>
+                      ))}
+                    </select>
+                    {candidates.length === 0 && <small>Keine Variante für diese gepinnte Revision vorhanden.</small>}
+                  </td>
+                </tr>
+              );
+            })}</tbody>
+          </table>
+        </div>
+      )}
+
       {blockingHint && <div className="summary-bar summary-fail">{blockingHint}</div>}
       <div className="panel-actions" style={{ marginTop: 10 }}>
-        <button className="btn-primary" disabled={busy || !pinned || !productId.trim() || !language.trim()} onClick={() => void validateAndRelease()}>
+        <button className="btn-primary" disabled={busy || !pinned || missingTranslations.length > 0 || !productId.trim() || !language.trim()} onClick={() => void validateAndRelease()}>
           {busy ? 'Validiere und erzeuge…' : 'Validieren & Release erzeugen'}
         </button>
       </div>
