@@ -42,6 +42,12 @@ def _trusted_headers() -> dict[str, str]:
     return {"X-SIMQIN-User": _USER_ID, "X-SIMQIN-Role": _ROLE}
 
 
+@router.get("/session")
+async def phase6_session() -> dict[str, str]:
+    headers = _trusted_headers()
+    return {"user_id": headers["X-SIMQIN-User"], "role": headers["X-SIMQIN-Role"]}
+
+
 async def _get(path: str, *, params: dict[str, Any] | None = None) -> dict[str, Any]:
     try:
         async with httpx.AsyncClient(timeout=30) as client:
