@@ -27,6 +27,13 @@ async def _json_response(response: httpx.Response) -> Any:
     return response.json()
 
 
+def _worker_unavailable(exc: httpx.RequestError) -> HTTPException:
+    return HTTPException(
+        status_code=503,
+        detail={"message": "Phase 6 worker is unavailable", "reason": str(exc)},
+    )
+
+
 def _trusted_headers() -> dict[str, str]:
     if not _USER_ID:
         raise HTTPException(status_code=503, detail="SIMQIN_USER_ID is not configured")
@@ -35,24 +42,32 @@ def _trusted_headers() -> dict[str, str]:
     return {"X-SIMQIN-User": _USER_ID, "X-SIMQIN-Role": _ROLE}
 
 
-@router.get("/content/schemas")
-async def phase6_schema_list() -> dict[str, Any]:
-    async with httpx.AsyncClient(timeout=30) as client:
-        response = await client.get(f"{WORKER_BASE_URL}/api/v1/content/schemas")
-    return await _json_response(response)
-
-
-@router.get("/content/schemas/{schema_name}")
-async def phase6_schema(schema_name: str) -> dict[str, Any]:
-    async with httpx.AsyncClient(timeout=30) as client:
-        response = await client.get(f"{WORKER_BASE_URL}/api/v1/content/schemas/{schema_name}")
+async def _get(path: str) -> dict[str, Any]:
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            response = await client.get(f"{WORKER_BASE_URL}{path}")
+    except httpx.RequestError as exc:
+        raise _worker_unavailable(exc) from exc
     return await _json_response(response)
 
 
 async def _post(path: str, body: dict[str, Any], *, headers: dict[str, str] | None = None) -> dict[str, Any]:
-    async with httpx.AsyncClient(timeout=30) as client:
-        response = await client.post(f"{WORKER_BASE_URL}{path}", json=body, headers=headers)
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            response = await client.post(f"{WORKER_BASE_URL}{path}", json=body, headers=headers)
+    except httpx.RequestError as exc:
+        raise _worker_unavailable(exc) from exc
     return await _json_response(response)
+
+
+@router.get("/content/schemas")
+async def phase6_schema_list() -> dict[str, Any]:
+    return await _get("/api/v1/content/schemas")
+
+
+@router.get("/content/schemas/{schema_name}")
+async def phase6_schema(schema_name: str) -> dict[str, Any]:
+    return await _get(f"/api/v1/content/schemas/{schema_name}")
 
 
 @router.post("/content/graph")
@@ -87,23 +102,17 @@ async def phase6_create_release(body: dict[str, Any]) -> dict[str, Any]:
 
 @router.get("/ifu/releases")
 async def phase6_list_releases() -> dict[str, Any]:
-    async with httpx.AsyncClient(timeout=30) as client:
-        response = await client.get(f"{WORKER_BASE_URL}/api/v1/ifu/releases")
-    return await _json_response(response)
+    return await _get("/api/v1/ifu/releases")
 
 
 @router.get("/ifu/releases/{release_id}")
 async def phase6_get_release(release_id: str) -> dict[str, Any]:
-    async with httpx.AsyncClient(timeout=30) as client:
-        response = await client.get(f"{WORKER_BASE_URL}/api/v1/ifu/releases/{release_id}")
-    return await _json_response(response)
+    return await _get(f"/api/v1/ifu/releases/{release_id}")
 
 
 @router.get("/reviews/migrations/{migration_id}/decisions")
 async def phase6_migration_review_decisions(migration_id: str) -> dict[str, Any]:
-    async with httpx.AsyncClient(timeout=30) as client:
-        response = await client.get(f"{WORKER_BASE_URL}/api/v1/reviews/migrations/{migration_id}/decisions")
-    return await _json_response(response)
+    return await _get(f"/api/v1/reviews/migrations/{migration_id}/decisions")
 
 
 @router.post("/reviews/migrations/{migration_id}/decisions", status_code=201)
