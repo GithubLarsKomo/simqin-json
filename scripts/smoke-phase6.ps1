@@ -13,11 +13,23 @@ if ($health.status -ne 'ok') {
 }
 Write-Host "[OK] API health"
 
+$session = Invoke-RestMethod -Uri "$ApiBase/api/v1/session" -Method Get
+if ([string]::IsNullOrWhiteSpace($session.user_id) -or $session.role -notin @('author', 'reviewer', 'approver')) {
+    throw "Phase 6 trusted session is invalid: $($session | ConvertTo-Json -Depth 8)"
+}
+Write-Host "[OK] Trusted session: $($session.user_id) / $($session.role)"
+
 $schemas = Invoke-RestMethod -Uri "$ApiBase/api/v1/content/schemas" -Method Get
 if (-not $schemas) {
     throw 'Phase 6 schema catalog returned no content.'
 }
 Write-Host "[OK] Phase 6 schema catalog"
+
+$translationCatalog = Invoke-RestMethod -Uri "$ApiBase/api/v1/translations/variants" -Method Get
+if ($null -eq $translationCatalog.count -or $null -eq $translationCatalog.variants) {
+    throw "Translation catalog returned an invalid contract: $($translationCatalog | ConvertTo-Json -Depth 8)"
+}
+Write-Host "[OK] Persistent translation catalog: $($translationCatalog.count) variant(s)"
 
 $payload = @{
     root_object_ids = @('tpl-smoke')
