@@ -13,7 +13,8 @@ services:
       - ./.storage:/data/storage
       - ./shared:/app/shared:ro
     depends_on:
-      - worker
+      worker:
+        condition: service_healthy
 
   worker:
     build:
@@ -27,6 +28,12 @@ services:
     volumes:
       - ./.storage:/data/storage
       - ./shared:/app/shared:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/api/v1/content/schemas', timeout=3).read()"]
+      interval: 5s
+      timeout: 4s
+      retries: 12
+      start_period: 5s
 
   frontend:
     build: ./frontend
