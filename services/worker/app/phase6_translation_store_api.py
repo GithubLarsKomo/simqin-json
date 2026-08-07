@@ -54,6 +54,8 @@ def create_translation_variant(
     x_simqin_role: str | None = Header(default=None, alias="X-SIMQIN-Role"),
 ) -> dict[str, Any]:
     principal = _principal(x_simqin_user, x_simqin_role)
+    if principal.role != "author":
+        raise HTTPException(status_code=403, detail="Author role is required to create translation variants")
     try:
         variant = TranslationVariant.from_dict(payload.variant)
         return TranslationVariantStore().add_variant(variant, created_by=principal.user_id)
@@ -110,6 +112,13 @@ def transition_translation_status(
     if principal.user_id == str(current.get("created_by", "")) and payload.status in {"reviewed", "approved"}:
         raise HTTPException(status_code=400, detail="Four-eyes rule violation: creator cannot review or approve own translation")
     _require_transition(principal, str(current.get("status", "")), payload.status)
+    if payload.status == "approved":
+        reviewed_events = [event for event in store.history(variant_id, revision) if event.get("status") == "reviewed"]
+        if not reviewed_events:
+            raise HTTPException(status_code=400, detail="Translation must be reviewed before approval")
+        reviewer = str(reviewed_events[-1].get("changed_by", ""))
+        if reviewer == principal.user_id:
+            raise HTTPException(status_code=400, detail="Four-eyes rule violation: reviewer and approver must differ")
     try:
         return store.transition(
             variant_id,
