@@ -6,7 +6,7 @@ import os
 from typing import Any
 
 import httpx
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
 from .main import WORKER_BASE_URL
 
@@ -42,10 +42,10 @@ def _trusted_headers() -> dict[str, str]:
     return {"X-SIMQIN-User": _USER_ID, "X-SIMQIN-Role": _ROLE}
 
 
-async def _get(path: str) -> dict[str, Any]:
+async def _get(path: str, *, params: dict[str, Any] | None = None) -> dict[str, Any]:
     try:
         async with httpx.AsyncClient(timeout=30) as client:
-            response = await client.get(f"{WORKER_BASE_URL}{path}")
+            response = await client.get(f"{WORKER_BASE_URL}{path}", params=params)
     except httpx.RequestError as exc:
         raise _worker_unavailable(exc) from exc
     return await _json_response(response)
@@ -88,6 +88,49 @@ async def phase6_content_resolve(body: dict[str, Any]) -> dict[str, Any]:
 @router.post("/translations/validate")
 async def phase6_translation_validate(body: dict[str, Any]) -> dict[str, Any]:
     return await _post("/api/v1/translations/validate", body)
+
+
+@router.post("/translations/variants", status_code=201)
+async def phase6_create_translation_variant(body: dict[str, Any]) -> dict[str, Any]:
+    return await _post("/api/v1/translations/variants", body, headers=_trusted_headers())
+
+
+@router.get("/translations/variants")
+async def phase6_list_translation_variants(
+    content_object_id: str = Query(default=""),
+    canonical_revision: int | None = Query(default=None, ge=1),
+    target_language: str = Query(default=""),
+    status: str = Query(default=""),
+) -> dict[str, Any]:
+    params: dict[str, Any] = {}
+    if content_object_id:
+        params["content_object_id"] = content_object_id
+    if canonical_revision is not None:
+        params["canonical_revision"] = canonical_revision
+    if target_language:
+        params["target_language"] = target_language
+    if status:
+        params["status"] = status
+    return await _get("/api/v1/translations/variants", params=params)
+
+
+@router.get("/translations/variants/{variant_id}/{revision}")
+async def phase6_get_translation_variant(variant_id: str, revision: int) -> dict[str, Any]:
+    return await _get(f"/api/v1/translations/variants/{variant_id}/{revision}")
+
+
+@router.get("/translations/variants/{variant_id}/{revision}/history")
+async def phase6_get_translation_history(variant_id: str, revision: int) -> dict[str, Any]:
+    return await _get(f"/api/v1/translations/variants/{variant_id}/{revision}/history")
+
+
+@router.post("/translations/variants/{variant_id}/{revision}/status")
+async def phase6_transition_translation_status(variant_id: str, revision: int, body: dict[str, Any]) -> dict[str, Any]:
+    return await _post(
+        f"/api/v1/translations/variants/{variant_id}/{revision}/status",
+        body,
+        headers=_trusted_headers(),
+    )
 
 
 @router.post("/ifu/releases/verify")
