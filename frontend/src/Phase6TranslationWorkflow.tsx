@@ -20,6 +20,7 @@ type TranslationVariant = {
 };
 type HistoryEvent = { event_id: number; status: string; changed_at: string; changed_by: string; comment: string };
 type Props = { resolvePayload?: Record<string, unknown> };
+type TranslationAction = 'reviewed' | 'approved' | 'rejected' | 'superseded';
 
 function detail(raw: string): string {
   try {
@@ -130,7 +131,7 @@ export default function Phase6TranslationWorkflow({ resolvePayload }: Props) {
     }
   }
 
-  async function transition(variant: TranslationVariant, status: 'reviewed' | 'approved' | 'rejected' | 'superseded') {
+  async function transition(variant: TranslationVariant, status: TranslationAction) {
     const key = keyOf(variant);
     setBusy(true); setMessage('');
     try {
@@ -152,10 +153,16 @@ export default function Phase6TranslationWorkflow({ resolvePayload }: Props) {
     }
   }
 
-  function allowedActions(variant: TranslationVariant) {
-    if (!session) return [] as Array<'reviewed' | 'approved' | 'rejected' | 'superseded'>;
-    if (variant.status === 'generated' && ['reviewer', 'approver'].includes(session.role)) return ['reviewed', 'rejected'];
-    if (variant.status === 'reviewed' && session.role === 'approver') return ['approved', 'rejected'];
+  function allowedActions(variant: TranslationVariant): TranslationAction[] {
+    if (!session) return [];
+    const isCreator = variant.created_by === session.user_id;
+    const isLastReviewer = variant.status === 'reviewed' && variant.status_changed_by === session.user_id;
+    if (variant.status === 'generated' && !isCreator && ['reviewer', 'approver'].includes(session.role)) {
+      return ['reviewed', 'rejected'];
+    }
+    if (variant.status === 'reviewed' && session.role === 'approver' && !isCreator && !isLastReviewer) {
+      return ['approved', 'rejected'];
+    }
     if (variant.status === 'approved' && session.role === 'approver') return ['superseded'];
     return [];
   }
