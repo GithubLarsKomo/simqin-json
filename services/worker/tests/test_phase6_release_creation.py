@@ -8,6 +8,8 @@ from fastapi.testclient import TestClient
 from jsonschema import Draft202012Validator
 
 from app.phase6_main import app
+from app.translation_store import TranslationVariantStore
+from app.translations import TranslationVariant
 
 
 client = TestClient(app)
@@ -64,22 +66,30 @@ def _payload(release_id: str = "rel-1", version: int = 1) -> dict:
     }
 
 
-def _translated_payload(
-    release_id: str = "rel-en",
-    *,
-    variant_status: str = "approved",
-    canonical_revision: int = 1,
-) -> dict:
+def _translated_payload(release_id: str = "rel-en") -> dict:
     payload = _payload(release_id)
     payload["language"] = "en-US"
-    payload["translation_variants"] = [
+    payload["translation_selections"] = [
+        {"content_object_id": "root", "variant_id": "tr-root-en", "revision": 3}
+    ]
+    return payload
+
+
+def _persist_translation(
+    storage_dir: Path,
+    *,
+    status: str = "approved",
+    canonical_revision: int = 1,
+) -> None:
+    store = TranslationVariantStore(storage_dir / "phase6-translations.sqlite3")
+    variant = TranslationVariant.from_dict(
         {
             "id": "tr-root-en",
             "content_object_id": "root",
             "canonical_revision": canonical_revision,
             "target_language": "en-US",
             "revision": 3,
-            "status": variant_status,
+            "status": "generated",
             "segment_translations": [
                 {
                     "segment_id": "seg-1",
@@ -89,11 +99,14 @@ def _translated_payload(
                 }
             ],
         }
-    ]
-    payload["translation_selections"] = [
-        {"content_object_id": "root", "variant_id": "tr-root-en", "revision": 3}
-    ]
-    return payload
+    )
+    store.add_variant(variant, created_by="translator-a")
+    if status in {"reviewed", "approved"}:
+        store.transition("tr-root-en", 3, status="reviewed", changed_by="reviewer-b")
+    if status == "approved":
+        store.transition("tr-root-en", 3, status="approved", changed_by="approver-a")
+    elif status == "rejected":
+        store.transition("tr-root-en", 3, status="rejected", changed_by="reviewer-b", comment="Rejected")
 
 
 def _release_schema() -> dict:
@@ -171,8 +184,9 @@ def test_release_read_detects_stored_payload_tampering(tmp_path, monkeypatch):
     assert listed.json()["detail"]["message"] == "Stored release integrity check failed"
 
 
-def test_translated_release_materializes_approved_exact_revision(tmp_path, monkeypatch):
+def test_translated_release_materializes_persisted_approved_exact_revision(tmp_path, monkeypatch):
     monkeypatch.setenv("STORAGE_DIR", str(tmp_path))
+    _persist_translation(tmp_path)
     response = client.post(
         "/api/v1/ifu/releases",
         headers=_APPROVER,
@@ -194,24 +208,48 @@ def test_translated_release_materializes_approved_exact_revision(tmp_path, monke
     Draft202012Validator(_release_schema()).validate(body)
 
 
-def test_translated_release_requires_approved_variant(tmp_path, monkeypatch):
+def test_translated_release_ignores_untrusted_variant_payload(tmp_path, monkeypatch):
     monkeypatch.setenv("STORAGE_DIR", str(tmp_path))
+    payload = _translated_payload("rel-untrusted")
+    payload["translation_variants"] = [
+        {
+            "id": "tr-root-en",
+            "content_object_id": "root",
+            "canonical_revision": 1,
+            "target_language": "en-US",
+            "revision": 3,
+            "status": "approved",
+            "segment_translations": [
+                {"segment_id": "seg-1", "translated_text": "Untrusted {{name}}.", "order": 0}
+            ],
+        }
+    ]
+    response = client.post("/api/v1/ifu/releases", headers=_APPROVER, json=payload)
+    assert response.status_code == 400
+    findings = response.json()["detail"]["findings"]
+    assert "translation-variant-not-found" in {item["code"] for item in findings}
+
+
+def test_translated_release_requires_persisted_approved_variant(tmp_path, monkeypatch):
+    monkeypatch.setenv("STORAGE_DIR", str(tmp_path))
+    _persist_translation(tmp_path, status="reviewed")
     response = client.post(
         "/api/v1/ifu/releases",
         headers=_APPROVER,
-        json=_translated_payload("rel-draft", variant_status="reviewed"),
+        json=_translated_payload("rel-draft"),
     )
     assert response.status_code == 400
     findings = response.json()["detail"]["findings"]
     assert "translation-not-approved" in {item["code"] for item in findings}
 
 
-def test_translated_release_requires_exact_canonical_revision(tmp_path, monkeypatch):
+def test_translated_release_requires_exact_persisted_canonical_revision(tmp_path, monkeypatch):
     monkeypatch.setenv("STORAGE_DIR", str(tmp_path))
+    _persist_translation(tmp_path, canonical_revision=2)
     response = client.post(
         "/api/v1/ifu/releases",
         headers=_APPROVER,
-        json=_translated_payload("rel-wrong-rev", canonical_revision=2),
+        json=_translated_payload("rel-wrong-rev"),
     )
     assert response.status_code == 400
     findings = response.json()["detail"]["findings"]
