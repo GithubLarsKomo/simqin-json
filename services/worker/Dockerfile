@@ -4,6 +4,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends libxml2 libxslt
 COPY services/worker/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY services/worker/app ./app
+COPY services/worker/schemas ./schemas
 COPY shared ./shared
 EXPOSE 8090
 CMD ["uvicorn", "app.phase6_main:app", "--host", "0.0.0.0", "--port", "8090"]
