@@ -15,6 +15,7 @@ from .phase6_roles import Phase6Principal
 from .release_builder import ReleaseBuildError, build_language_release_snapshot
 from .release_store import ReleaseStore
 from .release_translation import ReleaseTranslationError, build_release_translation_plan
+from .translation_store import TranslationVariantStore
 from .translations import TranslationVariant
 
 
@@ -35,6 +36,8 @@ class ReleaseCreatePayload(BaseModel):
     revision_mode: Literal["pinned"] = "pinned"
     configuration_parameters: list[dict[str, Any]] = Field(default_factory=list)
     configuration_values: list[dict[str, Any]] = Field(default_factory=list)
+    # Deprecated compatibility field. Release creation no longer trusts translation
+    # payloads supplied by the browser; selected variants are loaded from SQLite.
     translation_variants: list[dict[str, Any]] = Field(default_factory=list)
     translation_selections: list[dict[str, Any]] = Field(default_factory=list)
     ruleset_revision: str = ""
@@ -61,6 +64,26 @@ def _objects(rows: list[dict[str, Any]]) -> dict[str, ContentObject]:
             raise ValueError(f"Duplicate ContentObject id {obj.id}")
         parsed[obj.id] = obj
     return parsed
+
+
+def _persistent_variants(selection_rows: list[dict[str, Any]]) -> list[TranslationVariant]:
+    store = TranslationVariantStore()
+    variants: list[TranslationVariant] = []
+    seen: set[tuple[str, int]] = set()
+    for row in selection_rows:
+        variant_id = str(row.get("variant_id", "")).strip()
+        revision = row.get("revision")
+        if not variant_id or not isinstance(revision, int) or revision < 1:
+            continue
+        key = (variant_id, revision)
+        if key in seen:
+            continue
+        seen.add(key)
+        persisted = store.get(variant_id, revision)
+        if persisted is None:
+            continue
+        variants.append(TranslationVariant.from_dict(persisted))
+    return variants
 
 
 def _integrity_error(exc: ValueError) -> HTTPException:
@@ -93,7 +116,7 @@ def create_release(
         for row in payload.configuration_parameters:
             catalog.add(ConfigurationParameter.from_dict(row))
         values = [ConfigurationValue.from_dict(row) for row in payload.configuration_values]
-        variants = [TranslationVariant.from_dict(row) for row in payload.translation_variants]
+        variants = _persistent_variants(payload.translation_selections)
         translation_plan = build_release_translation_plan(
             release_id=payload.release_id,
             release_language=payload.language,
