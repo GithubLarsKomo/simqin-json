@@ -11,6 +11,7 @@ client = TestClient(app)
 _AUTHOR = {"X-SIMQIN-User": "author-a", "X-SIMQIN-Role": "author"}
 _REVIEWER = {"X-SIMQIN-User": "reviewer-b", "X-SIMQIN-Role": "reviewer"}
 _APPROVER = {"X-SIMQIN-User": "approver-c", "X-SIMQIN-Role": "approver"}
+_APPROVER_REVIEWER = {"X-SIMQIN-User": "approver-reviewer", "X-SIMQIN-Role": "approver"}
 
 
 def _variant(status: str = "generated") -> dict:
@@ -83,6 +84,13 @@ def test_translation_api_persists_lists_and_filters(tmp_path, monkeypatch):
     assert missing.json()["count"] == 0
 
 
+def test_translation_creation_requires_author_role(tmp_path, monkeypatch):
+    monkeypatch.setenv("STORAGE_DIR", str(tmp_path))
+    response = client.post("/api/v1/translations/variants", headers=_REVIEWER, json={"variant": _variant()})
+    assert response.status_code == 403
+    assert "Author role" in str(response.json()["detail"])
+
+
 def test_translation_api_enforces_roles_four_eyes_and_history(tmp_path, monkeypatch):
     monkeypatch.setenv("STORAGE_DIR", str(tmp_path))
     created = client.post("/api/v1/translations/variants", headers=_AUTHOR, json={"variant": _variant()})
@@ -121,6 +129,27 @@ def test_translation_api_enforces_roles_four_eyes_and_history(tmp_path, monkeypa
     history = client.get("/api/v1/translations/variants/tr-root-en/1/history")
     assert history.status_code == 200
     assert [event["status"] for event in history.json()["events"]] == ["generated", "reviewed", "approved"]
+
+
+def test_reviewer_and_approver_must_be_different_people(tmp_path, monkeypatch):
+    monkeypatch.setenv("STORAGE_DIR", str(tmp_path))
+    created = client.post("/api/v1/translations/variants", headers=_AUTHOR, json={"variant": _variant()})
+    assert created.status_code == 201
+
+    reviewed = client.post(
+        "/api/v1/translations/variants/tr-root-en/1/status",
+        headers=_APPROVER_REVIEWER,
+        json={"status": "reviewed"},
+    )
+    assert reviewed.status_code == 200
+
+    self_approval = client.post(
+        "/api/v1/translations/variants/tr-root-en/1/status",
+        headers=_APPROVER_REVIEWER,
+        json={"status": "approved"},
+    )
+    assert self_approval.status_code == 400
+    assert "reviewer and approver must differ" in str(self_approval.json()["detail"])
 
 
 def test_translation_rejection_and_supersede_require_comment(tmp_path, monkeypatch):
