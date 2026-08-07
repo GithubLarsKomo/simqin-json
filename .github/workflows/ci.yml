@@ -45,6 +45,10 @@ jobs:
           paths = {route.path for route in app.routes}
           required = {
               '/api/v1/content/resolve',
+              '/api/v1/translations/variants',
+              '/api/v1/translations/variants/{variant_id}/{revision}',
+              '/api/v1/translations/variants/{variant_id}/{revision}/history',
+              '/api/v1/translations/variants/{variant_id}/{revision}/status',
               '/api/v1/ifu/releases',
               '/api/v1/ifu/releases/{release_id}',
               '/api/v1/ifu/releases/verify',
@@ -109,6 +113,10 @@ jobs:
               '/api/v1/content/validate',
               '/api/v1/content/resolve',
               '/api/v1/translations/validate',
+              '/api/v1/translations/variants',
+              '/api/v1/translations/variants/{variant_id}/{revision}',
+              '/api/v1/translations/variants/{variant_id}/{revision}/history',
+              '/api/v1/translations/variants/{variant_id}/{revision}/status',
               '/api/v1/ifu/releases',
               '/api/v1/ifu/releases/{release_id}',
               '/api/v1/ifu/releases/verify',
