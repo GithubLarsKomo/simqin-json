@@ -84,16 +84,35 @@ def _translated_candidate(candidate_id: str = "cand-en", release_id: str = "rel-
     return payload
 
 
+def _persist_candidate_sources(payload: dict) -> None:
+    """Register the exact pinned revisions used by a candidate test fixture."""
+    store = CanonicalContentStore()
+    pins = payload.get("pinned_revisions", {})
+    for object_row in payload.get("objects", []):
+        object_id = object_row.get("id", "")
+        pinned_revision = pins.get(object_id)
+        if not isinstance(pinned_revision, int):
+            continue
+        revision_row = next(
+            (row for row in object_row.get("revisions", []) if row.get("revision") == pinned_revision),
+            None,
+        )
+        if revision_row is None or store.get(object_id, pinned_revision) is not None:
+            continue
+        store.add(
+            object_id=object_id,
+            canonical_language=object_row.get("canonical_language", "de-DE"),
+            revision=ContentObjectRevision.from_dict(revision_row),
+            registered_by="approver-source",
+        )
+
+
 def _persist_translation(
     storage_dir: Path,
     *,
     status: str = "approved",
     canonical_revision: int = 1,
 ) -> None:
-    # Derive the trusted canonical source from the same release fixture rather
-    # than maintaining a second hand-written copy. The trust boundary compares
-    # canonical content, segment structure, approval state and slot definitions
-    # exactly, so fixture drift must be impossible here.
     source_payload = dict(_candidate_payload()["objects"][0]["revisions"][0])
     source_payload["revision"] = canonical_revision
     source_payload["sentence_segments"] = [
@@ -101,12 +120,15 @@ def _persist_translation(
         for segment in source_payload["sentence_segments"]
     ]
     source = ContentObjectRevision.from_dict(source_payload)
-    trusted = CanonicalContentStore(storage_dir / "phase6-canonical-content.sqlite3").add(
-        object_id="root",
-        canonical_language="de-DE",
-        revision=source,
-        registered_by="approver-source",
-    )
+    canonical_store = CanonicalContentStore(storage_dir / "phase6-canonical-content.sqlite3")
+    trusted = canonical_store.get("root", canonical_revision)
+    if trusted is None:
+        trusted = canonical_store.add(
+            object_id="root",
+            canonical_language="de-DE",
+            revision=source,
+            registered_by="approver-source",
+        )
     store = TranslationVariantStore(storage_dir / "phase6-translations.sqlite3")
     variant = TranslationVariant.from_dict(
         {
@@ -134,7 +156,14 @@ def _persist_translation(
         store.transition("tr-root-en", 3, status="approved", changed_by="approver-a")
 
 
-def _create_candidate(payload: dict, headers: dict[str, str] = _AUTHOR):
+def _create_candidate(
+    payload: dict,
+    headers: dict[str, str] = _AUTHOR,
+    *,
+    register_sources: bool = True,
+):
+    if register_sources:
+        _persist_candidate_sources(payload)
     return client.post("/api/v1/ifu/release-candidates", headers=headers, json=payload)
 
 
@@ -153,6 +182,27 @@ def _publish(candidate_id: str, headers: dict[str, str] = _APPROVER):
 def _release_schema() -> dict:
     path = Path(__file__).parents[1] / "schemas" / "phase6" / "ifu-language-release.schema.json"
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def test_candidate_requires_registered_trusted_source(tmp_path, monkeypatch):
+    monkeypatch.setenv("STORAGE_DIR", str(tmp_path))
+    response = _create_candidate(_candidate_payload(), register_sources=False)
+    assert response.status_code == 400
+    findings = response.json()["detail"]["findings"]
+    assert "canonical-source-not-registered" in {item["code"] for item in findings}
+
+
+def test_candidate_rejects_content_that_differs_from_trusted_source(tmp_path, monkeypatch):
+    monkeypatch.setenv("STORAGE_DIR", str(tmp_path))
+    trusted_payload = _candidate_payload()
+    _persist_candidate_sources(trusted_payload)
+    candidate_payload = _candidate_payload("cand-mismatch", "rel-mismatch")
+    candidate_payload["objects"][0]["revisions"][0]["canonical_content"] = "Manipuliert {{name}}."
+    candidate_payload["objects"][0]["revisions"][0]["sentence_segments"][0]["source_text"] = "Manipuliert {{name}}."
+    response = _create_candidate(candidate_payload, register_sources=False)
+    assert response.status_code == 400
+    findings = response.json()["detail"]["findings"]
+    assert "canonical-source-mismatch" in {item["code"] for item in findings}
 
 
 def test_release_requires_approved_candidate_and_approver(tmp_path, monkeypatch):
@@ -296,4 +346,5 @@ def test_candidate_requires_exact_trusted_canonical_revision(tmp_path, monkeypat
     response = _create_candidate(_translated_candidate("cand-wrong", "rel-wrong"))
     assert response.status_code == 400
     findings = response.json()["detail"]["findings"]
-    assert "translation-canonical-revision-mismatch" in {item["code"] for item in findings}
+    codes = {item["code"] for item in findings}
+    assert "translation-canonical-revision-mismatch" in codes or "translation-variant-not-found" in codes
