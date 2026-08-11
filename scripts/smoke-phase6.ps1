@@ -7,9 +7,25 @@ if ([string]::IsNullOrWhiteSpace($ApiBase)) {
 
 Write-Host "SIMQIN Phase 6 smoke test against $ApiBase"
 
-$health = Invoke-RestMethod -Uri "$ApiBase/health" -Method Get
-if ($health.status -ne 'ok') {
-    throw "API health check failed: $($health | ConvertTo-Json -Depth 8)"
+$health = $null
+$lastHealthError = $null
+for ($attempt = 1; $attempt -le 15; $attempt++) {
+    try {
+        $health = Invoke-RestMethod -Uri "$ApiBase/health" -Method Get -TimeoutSec 3
+        if ($health.status -eq 'ok') {
+            break
+        }
+        $lastHealthError = "Unexpected health payload: $($health | ConvertTo-Json -Depth 8)"
+    }
+    catch {
+        $lastHealthError = $_.Exception.Message
+    }
+    if ($attempt -lt 15) {
+        Start-Sleep -Seconds 1
+    }
+}
+if ($null -eq $health -or $health.status -ne 'ok') {
+    throw "API did not become ready: $lastHealthError"
 }
 Write-Host "[OK] API health"
 
