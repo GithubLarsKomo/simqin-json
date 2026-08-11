@@ -36,6 +36,7 @@ def build_language_release_snapshot(
     source_release_id: str = "",
     created_at: str = "",
     created_by: str = "",
+    extra_provenance: dict[str, Any] | None = None,
 ) -> IFULanguageReleaseSnapshot:
     findings: list[dict[str, Any]] = []
     if getattr(resolved_tree.provenance, "mode", "") != "pinned":
@@ -99,6 +100,7 @@ def build_language_release_snapshot(
         "resolution_mode": getattr(resolved_tree.provenance, "mode", ""),
         "object_revisions_read": getattr(resolved_tree.provenance, "object_revisions_read", []),
         "aliases_followed": getattr(resolved_tree.provenance, "aliases_followed", []),
+        **dict(extra_provenance or {}),
     }
 
     return IFULanguageReleaseSnapshot(
