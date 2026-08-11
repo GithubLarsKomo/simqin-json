@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import asdict
 from datetime import datetime, timezone
 from typing import Any
 
@@ -49,6 +50,8 @@ def build_from_candidate_payload(
     release_id: str,
     version: int,
     created_by: str,
+    candidate_id: str = "",
+    candidate_checksum: str = "",
 ) -> Any:
     objects = _objects(list(payload.get("objects", [])))
     rules = [MultiplicityRule.from_dict(row) for row in payload.get("multiplicity_rules", [])]
@@ -76,6 +79,11 @@ def build_from_candidate_payload(
         selection_rows=selection_rows,
         selected_by=created_by,
     )
+    extra_provenance: dict[str, Any] = {}
+    if candidate_id:
+        extra_provenance["release_candidate_id"] = candidate_id
+    if candidate_checksum:
+        extra_provenance["release_candidate_checksum"] = candidate_checksum
     return build_language_release_snapshot(
         release_id=release_id,
         product_id=str(payload.get("product_id", "")),
@@ -91,6 +99,7 @@ def build_from_candidate_payload(
         source_release_id=str(payload.get("source_release_id", "")),
         created_at=datetime.now(timezone.utc).isoformat(),
         created_by=created_by,
+        extra_provenance=extra_provenance,
     )
 
 
@@ -105,6 +114,6 @@ def validate_candidate_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "valid": True,
         "resolution_checksum": probe.provenance.get("resolution_checksum", ""),
         "graph_checksum": probe.provenance.get("graph_checksum", ""),
-        "translation_bindings": [item.to_dict() for item in probe.translation_bindings],
-        "content_bindings": [item.to_dict() for item in probe.content_bindings],
+        "translation_bindings": [asdict(item) for item in probe.translation_bindings],
+        "content_bindings": [asdict(item) for item in probe.content_bindings],
     }
