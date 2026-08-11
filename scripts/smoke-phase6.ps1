@@ -25,6 +25,12 @@ if (-not $schemas) {
 }
 Write-Host "[OK] Phase 6 schema catalog"
 
+$canonicalCatalog = Invoke-RestMethod -Uri "$ApiBase/api/v1/content/canonical-snapshots" -Method Get
+if ($null -eq $canonicalCatalog.count -or $null -eq $canonicalCatalog.snapshots) {
+    throw "Canonical source catalog returned an invalid contract: $($canonicalCatalog | ConvertTo-Json -Depth 8)"
+}
+Write-Host "[OK] Trusted canonical source catalog: $($canonicalCatalog.count) snapshot(s)"
+
 $translationCatalog = Invoke-RestMethod -Uri "$ApiBase/api/v1/translations/variants" -Method Get
 if ($null -eq $translationCatalog.count -or $null -eq $translationCatalog.variants) {
     throw "Translation catalog returned an invalid contract: $($translationCatalog | ConvertTo-Json -Depth 8)"
