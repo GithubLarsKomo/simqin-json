@@ -72,12 +72,14 @@ class ReleaseCandidateStore:
         created_by = created_by.strip()
         product_id = str(payload.get("product_id", "")).strip()
         language = str(payload.get("language", "")).strip()
-        if not candidate_id or not created_by or not product_id or not language:
-            raise ValueError("candidate_id, created_by, product_id and language are required")
+        release_id = str(payload.get("release_id", "")).strip()
+        version = payload.get("version")
+        if not candidate_id or not created_by or not product_id or not language or not release_id:
+            raise ValueError("candidate_id, created_by, product_id, language and release_id are required")
+        if not isinstance(version, int) or version < 1:
+            raise ValueError("release candidate version must be a positive integer")
         frozen = dict(payload)
         frozen.pop("candidate_id", None)
-        frozen.pop("release_id", None)
-        frozen.pop("version", None)
         checksum = _checksum(frozen)
         created_at = _now()
         try:
@@ -129,6 +131,8 @@ class ReleaseCandidateStore:
             "candidate_id": row["candidate_id"],
             "product_id": row["product_id"],
             "language": row["language"],
+            "release_id": payload.get("release_id", ""),
+            "version": payload.get("version", 0),
             "payload": payload,
             "payload_checksum": row["payload_checksum"],
             "created_at": row["created_at"],
