@@ -4,7 +4,13 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080';
 
 type Session = { user_id: string; role: 'author' | 'reviewer' | 'approver' };
 type Segment = { segment_id: string; source_text: string; order: number; segment_type?: string };
-type ContentRevision = { revision: number; sentence_segments?: Segment[] };
+type ContentRevision = {
+  revision: number;
+  canonical_content?: string;
+  sentence_segments?: Segment[];
+  approval_status?: string;
+  [key: string]: unknown;
+};
 type ContentObject = { id: string; canonical_language: string; revisions?: ContentRevision[] };
 type TranslationSegment = { segment_id: string; source_text?: string; translated_text: string; order: number };
 type TranslationVariant = {
@@ -18,15 +24,27 @@ type TranslationVariant = {
   status_changed_by?: string;
   segment_translations?: TranslationSegment[];
 };
+type CanonicalSnapshot = {
+  object_id: string;
+  revision: number;
+  canonical_language: string;
+  approval_status: string;
+  payload_checksum: string;
+  registered_by: string;
+  registered_at: string;
+};
 type HistoryEvent = { event_id: number; status: string; changed_at: string; changed_by: string; comment: string };
 type Props = { resolvePayload?: Record<string, unknown> };
 type TranslationAction = 'reviewed' | 'approved' | 'rejected' | 'superseded';
 
 function detail(raw: string): string {
   try {
-    const parsed = JSON.parse(raw) as { detail?: string | { message?: string } };
+    const parsed = JSON.parse(raw) as { detail?: string | { message?: string; findings?: Array<{ message?: string }> } };
     if (typeof parsed.detail === 'string') return parsed.detail;
-    if (parsed.detail && typeof parsed.detail === 'object') return parsed.detail.message || raw;
+    if (parsed.detail && typeof parsed.detail === 'object') {
+      const findings = parsed.detail.findings?.map((item) => item.message).filter(Boolean).join('; ');
+      return findings || parsed.detail.message || raw;
+    }
   } catch {
     // Keep raw text.
   }
@@ -38,6 +56,7 @@ export default function Phase6TranslationWorkflow({ resolvePayload }: Props) {
   const pins = useMemo(() => (resolvePayload?.pinned_revisions || {}) as Record<string, number>, [resolvePayload]);
   const [session, setSession] = useState<Session | null>(null);
   const [variants, setVariants] = useState<TranslationVariant[]>([]);
+  const [snapshots, setSnapshots] = useState<CanonicalSnapshot[]>([]);
   const [selectedObjectId, setSelectedObjectId] = useState(objects[0]?.id || '');
   const [targetLanguage, setTargetLanguage] = useState('en-US');
   const [variantId, setVariantId] = useState('');
@@ -52,6 +71,7 @@ export default function Phase6TranslationWorkflow({ resolvePayload }: Props) {
   const canonicalRevision = selectedObjectId ? pins[selectedObjectId] : undefined;
   const sourceRevision = selectedObject?.revisions?.find((item) => item.revision === canonicalRevision);
   const sourceSegments = sourceRevision?.sentence_segments || [];
+  const trustedSnapshot = snapshots.find((item) => item.object_id === selectedObjectId && item.revision === canonicalRevision);
 
   useEffect(() => {
     if (!selectedObjectId && objects[0]) setSelectedObjectId(objects[0].id);
@@ -77,13 +97,55 @@ export default function Phase6TranslationWorkflow({ resolvePayload }: Props) {
     setVariants(body.variants || []);
   }
 
+  async function loadSnapshots() {
+    const response = await fetch(`${API_BASE}/api/v1/content/canonical-snapshots`);
+    if (!response.ok) throw new Error(detail(await response.text()));
+    const body = await response.json() as { snapshots?: CanonicalSnapshot[] };
+    setSnapshots(body.snapshots || []);
+  }
+
   useEffect(() => {
-    void Promise.all([loadSession(), loadVariants()]).catch((reason) => setMessage(String(reason)));
+    void Promise.all([loadSession(), loadVariants(), loadSnapshots()]).catch((reason) => setMessage(String(reason)));
   }, []);
+
+  async function registerCanonicalSource() {
+    if (!selectedObject || !canonicalRevision || !sourceRevision) {
+      setMessage('Für das gewählte Content Object ist keine gepinnte Source-Revision verfügbar.');
+      return;
+    }
+    if (sourceRevision.approval_status !== 'approved') {
+      setMessage('Nur eine bereits freigegebene kanonische Revision kann als Source-Snapshot registriert werden.');
+      return;
+    }
+    setBusy(true); setMessage('');
+    try {
+      const response = await fetch(`${API_BASE}/api/v1/content/canonical-snapshots`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          object_id: selectedObject.id,
+          canonical_language: selectedObject.canonical_language,
+          revision: sourceRevision,
+        }),
+      });
+      if (!response.ok) throw new Error(detail(await response.text()));
+      const created = await response.json() as CanonicalSnapshot;
+      setMessage(`Trusted Source registriert: ${created.object_id}@${created.revision} · ${created.payload_checksum.slice(0, 16)}…`);
+      await loadSnapshots();
+    } catch (reason) {
+      setMessage(String(reason));
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function createVariant() {
     if (!selectedObject || !canonicalRevision || sourceSegments.length === 0) {
       setMessage('Für die gewählte gepinnte Revision sind keine Source-Segmente verfügbar.');
+      return;
+    }
+    if (!trustedSnapshot) {
+      setMessage('Die kanonische Source-Revision muss zuerst durch einen Approver als trusted Snapshot registriert werden.');
       return;
     }
     setBusy(true); setMessage('');
@@ -174,22 +236,44 @@ export default function Phase6TranslationWorkflow({ resolvePayload }: Props) {
           <h2>Translation Workflow</h2>
           <span className="badge badge-info">{session ? `${session.user_id} · ${session.role}` : 'identity loading'}</span>
         </div>
-        <p>Translation-Inhalte sind revisionsfest gespeichert; Statusänderungen werden append-only protokolliert. Die UI blendet nur rollenkompatible Aktionen ein, der Server erzwingt die Policy zusätzlich.</p>
+        <p>Translation-Inhalte sind revisionsfest gespeichert und werden bei Review sowie Freigabe erneut gegen einen immutable, serverseitig registrierten kanonischen Source-Snapshot validiert.</p>
+
+        <div className="card" style={{ marginBottom: 12 }}>
+          <div className="section-header">
+            <strong>Canonical Source Trust</strong>
+            <span className={`badge ${trustedSnapshot ? 'badge-info' : 'badge-warning'}`}>
+              {trustedSnapshot ? 'trusted snapshot' : 'not registered'}
+            </span>
+          </div>
+          <div className="three-panel-layout">
+            <label className="panel">Content Object
+              <select value={selectedObjectId} onChange={(event) => setSelectedObjectId(event.target.value)} style={{ width: '100%' }}>
+                {objects.map((item) => <option key={item.id} value={item.id}>{item.id}</option>)}
+              </select>
+            </label>
+            <div className="panel"><strong>Kanonisch</strong><p>{selectedObject?.canonical_language || '—'} @ {canonicalRevision || '—'}</p></div>
+            <div className="panel"><strong>Source-Status</strong><p>{sourceRevision?.approval_status || '—'}</p></div>
+          </div>
+          {trustedSnapshot ? (
+            <small>Registriert von {trustedSnapshot.registered_by} · Checksum <code>{trustedSnapshot.payload_checksum.slice(0, 16)}…</code></small>
+          ) : session?.role === 'approver' ? (
+            <button className="btn-primary" disabled={busy || !sourceRevision || sourceRevision.approval_status !== 'approved'} onClick={() => void registerCanonicalSource()}>
+              Gepinnte Revision als trusted Source registrieren
+            </button>
+          ) : (
+            <div className="summary-bar summary-fail">Ein Approver muss diese gepinnte kanonische Revision zuerst registrieren.</div>
+          )}
+        </div>
 
         {session?.role === 'author' && (
           <div className="card" style={{ marginBottom: 12 }}>
             <div className="section-header"><strong>Neue Translation Revision</strong><span className="badge badge-warning">generated</span></div>
             <div className="three-panel-layout">
-              <label className="panel">Content Object
-                <select value={selectedObjectId} onChange={(event) => setSelectedObjectId(event.target.value)} style={{ width: '100%' }}>
-                  {objects.map((item) => <option key={item.id} value={item.id}>{item.id}</option>)}
-                </select>
-              </label>
               <label className="panel">Zielsprache<input value={targetLanguage} onChange={(event) => setTargetLanguage(event.target.value)} style={{ width: '100%' }} /></label>
               <label className="panel">Translation Revision<input type="number" min={1} value={translationRevision} onChange={(event) => setTranslationRevision(Math.max(1, Number(event.target.value) || 1))} style={{ width: '100%' }} /></label>
+              <div className="panel"><strong>Trusted Source</strong><p>{trustedSnapshot ? 'ja' : 'nein'}</p></div>
             </div>
             <label>Variant-ID<input value={variantId} onChange={(event) => setVariantId(event.target.value)} style={{ width: '100%' }} /></label>
-            <p><strong>Kanonische Revision:</strong> {canonicalRevision || 'nicht gepinnt'}</p>
             {sourceSegments.map((segment) => (
               <div className="panel" key={segment.segment_id} style={{ marginBottom: 8 }}>
                 <div className="panel-header"><code>{segment.segment_id}</code></div>
@@ -203,7 +287,7 @@ export default function Phase6TranslationWorkflow({ resolvePayload }: Props) {
                 />
               </div>
             ))}
-            <button className="btn-primary" disabled={busy || !variantId.trim() || !targetLanguage.trim() || sourceSegments.length === 0} onClick={() => void createVariant()}>
+            <button className="btn-primary" disabled={busy || !trustedSnapshot || !variantId.trim() || !targetLanguage.trim() || sourceSegments.length === 0} onClick={() => void createVariant()}>
               Translation Revision speichern
             </button>
           </div>
