@@ -104,7 +104,9 @@
         "configuration_hash": {"type": "string"},
         "resolution_mode": {"const": "pinned"},
         "object_revisions_read": {"type": "array", "items": {"type": "string"}},
-        "aliases_followed": {"type": "array", "items": {"type": "string"}}
+        "aliases_followed": {"type": "array", "items": {"type": "string"}},
+        "release_candidate_id": {"type": "string", "minLength": 1},
+        "release_candidate_checksum": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
       }
     },
     "created_at": {"type": "string", "minLength": 1},
