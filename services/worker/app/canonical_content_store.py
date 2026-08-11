@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from .content_objects import ContentObjectRevision
+from .content_segment import ContentSegment, validate_segments
 
 
 def _now() -> str:
@@ -29,6 +30,38 @@ def _canonical_json(value: Any) -> str:
 
 def _checksum(payload: dict[str, Any]) -> str:
     return hashlib.sha256(_canonical_json(payload).encode("utf-8")).hexdigest()
+
+
+def _validate_source_revision(revision: ContentObjectRevision) -> None:
+    try:
+        segments = [
+            item if isinstance(item, ContentSegment) else ContentSegment.from_dict(item)
+            for item in revision.sentence_segments
+        ]
+    except (TypeError, ValueError, KeyError) as exc:
+        raise ValueError(f"Invalid canonical source segment: {exc}") from exc
+
+    errors = validate_segments(segments)
+    for index, segment in enumerate(segments):
+        if segment.source_revision != revision.revision:
+            errors.append(
+                f"segments[{index}]: source_revision {segment.source_revision} does not match canonical revision {revision.revision}"
+            )
+        if not segment.source_text:
+            errors.append(f"segments[{index}]: source_text is required")
+
+    cursor = 0
+    for index, segment in sorted(enumerate(segments), key=lambda item: (item[1].order, item[0])):
+        position = revision.canonical_content.find(segment.source_text, cursor)
+        if position < 0:
+            errors.append(
+                f"segments[{index}]: source_text is not present in canonical_content in deterministic order"
+            )
+            continue
+        cursor = position + len(segment.source_text)
+
+    if errors:
+        raise ValueError("Invalid canonical source snapshot: " + "; ".join(errors))
 
 
 class CanonicalContentStore:
@@ -87,6 +120,7 @@ class CanonicalContentStore:
             raise ValueError("Approved canonical revision must contain canonical_content")
         if not revision.sentence_segments:
             raise ValueError("Approved canonical revision must contain sentence_segments")
+        _validate_source_revision(revision)
 
         payload = revision.to_dict()
         checksum = _checksum(payload)
