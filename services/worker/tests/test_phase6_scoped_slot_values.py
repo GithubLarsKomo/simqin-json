@@ -79,8 +79,10 @@ def test_scoped_slot_values_allow_same_slot_id_on_multiple_objects():
     body = resolution.json()
     rendered = {block["source_object_id"]: block["rendered_content"] for block in body["blocks"]}
     assert rendered == {"root-a": "A: Alice", "root-b": "B: Bob"}
-    assert body["provenance"]["slot_values"]["root-a@1:name"] == "Alice"
-    assert body["provenance"]["slot_values"]["root-b@1:name"] == "Bob"
+    provenance = body["provenance"]["slot_values"]
+    assert provenance["root-a@1:name"] == "Alice"
+    assert provenance["root-b@1:name"] == "Bob"
+    assert set(provenance) == {"root-a@1:name", "root-b@1:name"}
 
 
 def test_object_scoped_value_precedes_global_fallback():
