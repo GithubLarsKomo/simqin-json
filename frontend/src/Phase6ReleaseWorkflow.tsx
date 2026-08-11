@@ -6,6 +6,7 @@ type Session = { user_id: string; role: 'author' | 'reviewer' | 'approver' };
 type TranslationBinding = { content_object_id: string; target_language: string; variant_id: string; revision: number; canonical_revision: number };
 type TranslationVariant = { id: string; content_object_id: string; canonical_revision: number; target_language: string; revision: number; status: string; created_by?: string; status_changed_by?: string };
 type ContentObject = { id: string; canonical_language: string };
+type CanonicalSnapshot = { object_id: string; revision: number; canonical_language: string; payload_checksum: string; registered_by: string };
 type ReleaseSummary = {
   release_id: string; product_id: string; language: string; version: number; created_at: string; created_by: string; release_checksum: string;
   translation_bindings?: TranslationBinding[];
@@ -49,6 +50,8 @@ export default function Phase6ReleaseWorkflow({ resolvePayload }: Props) {
   const [variants, setVariants] = useState<TranslationVariant[]>([]);
   const [translationSelections, setTranslationSelections] = useState<SelectionMap>({});
   const [variantsBusy, setVariantsBusy] = useState(false);
+  const [snapshots, setSnapshots] = useState<CanonicalSnapshot[]>([]);
+  const [snapshotsBusy, setSnapshotsBusy] = useState(false);
 
   const pinned = resolvePayload?.revision_mode === 'pinned';
   const objects = useMemo(() => (resolvePayload?.objects || []) as ContentObject[], [resolvePayload]);
@@ -56,6 +59,13 @@ export default function Phase6ReleaseWorkflow({ resolvePayload }: Props) {
   const releaseId = useMemo(() => `${productId}-${language}-v${version}`.replace(/[^A-Za-z0-9_.-]+/g, '-'), [productId, language, version]);
 
   useEffect(() => { setCandidateId(`${releaseId}-candidate`); }, [releaseId]);
+
+  const requiredSources = useMemo(() => objects
+    .map((object) => ({ object, revision: pins[object.id] }))
+    .filter((item) => Number.isInteger(item.revision) && item.revision > 0), [objects, pins]);
+
+  const missingSources = useMemo(() => requiredSources.filter(({ object, revision }) =>
+    !snapshots.some((snapshot) => snapshot.object_id === object.id && snapshot.revision === revision)), [requiredSources, snapshots]);
 
   const requiredTranslations = useMemo(() => objects
     .filter((item) => item.canonical_language && item.canonical_language !== language)
@@ -72,10 +82,12 @@ export default function Phase6ReleaseWorkflow({ resolvePayload }: Props) {
   const blockingHint = useMemo(() => {
     if (!resolvePayload) return 'Kein Resolver-Payload vorhanden.';
     if (!pinned) return 'Candidate gesperrt: Resolver muss im Modus pinned laufen.';
+    if (snapshotsBusy) return 'Trusted Canonical Sources werden geladen…';
+    if (missingSources.length > 0) return `Candidate gesperrt: ${missingSources.length} gepinnte Content-Revision(en) besitzen noch keinen Trusted Source Snapshot.`;
     if (variantsBusy && requiredTranslations.length > 0) return 'Freigegebene Übersetzungen werden geladen…';
     if (missingTranslations.length > 0) return `Candidate gesperrt: ${missingTranslations.length} persistierte Übersetzung(en) müssen explizit freigegeben und gepinnt werden.`;
     return '';
-  }, [resolvePayload, pinned, variantsBusy, requiredTranslations.length, missingTranslations]);
+  }, [resolvePayload, pinned, snapshotsBusy, missingSources, variantsBusy, requiredTranslations.length, missingTranslations]);
 
   useEffect(() => {
     setTranslationSelections((current) => {
@@ -110,6 +122,16 @@ export default function Phase6ReleaseWorkflow({ resolvePayload }: Props) {
     setCandidates(body.candidates || []);
   }
 
+  async function loadSnapshots() {
+    setSnapshotsBusy(true);
+    try {
+      const response = await fetch(`${API_BASE}/api/v1/content/canonical-snapshots`);
+      if (!response.ok) throw new Error(errorDetail(await response.text()));
+      const body = await response.json() as { snapshots?: CanonicalSnapshot[] };
+      setSnapshots(body.snapshots || []);
+    } finally { setSnapshotsBusy(false); }
+  }
+
   async function loadVariants(targetLanguage: string) {
     if (!targetLanguage.trim()) { setVariants([]); return; }
     setVariantsBusy(true);
@@ -123,7 +145,7 @@ export default function Phase6ReleaseWorkflow({ resolvePayload }: Props) {
   }
 
   useEffect(() => {
-    void Promise.all([loadSession(), loadReleases(), loadCandidates()]).catch((reason) => setMessage(String(reason)));
+    void Promise.all([loadSession(), loadReleases(), loadCandidates(), loadSnapshots()]).catch((reason) => setMessage(String(reason)));
   }, []);
   useEffect(() => { void loadVariants(language).catch((reason) => setMessage(String(reason))); }, [language]);
 
@@ -148,7 +170,7 @@ export default function Phase6ReleaseWorkflow({ resolvePayload }: Props) {
   }
 
   async function createCandidate() {
-    if (!resolvePayload || !pinned || variantsBusy || missingTranslations.length > 0) { setMessage(blockingHint); return; }
+    if (!resolvePayload || !pinned || snapshotsBusy || missingSources.length > 0 || variantsBusy || missingTranslations.length > 0) { setMessage(blockingHint); return; }
     setBusy(true); setMessage('');
     try {
       await validateContent();
@@ -207,7 +229,7 @@ export default function Phase6ReleaseWorkflow({ resolvePayload }: Props) {
         <h2>Release Governance</h2>
         <span className="badge badge-info">{session ? `${session.user_id} · ${session.role}` : 'identity loading'}</span>
       </div>
-      <p>Release-Daten werden zuerst als unveränderlicher Candidate eingefroren. Ein anderer Approver genehmigt exakt diesen Checksum-Stand; erst danach kann derselbe Candidate ohne weitere Inhaltsparameter publiziert werden.</p>
+      <p>Release-Daten werden zuerst als unveränderlicher Candidate eingefroren. Jede gepinnte Content-Revision muss exakt einem Trusted Canonical Source Snapshot entsprechen. Ein anderer Approver genehmigt anschließend exakt diesen Checksum-Stand.</p>
 
       <div className="three-panel-layout">
         <label className="panel">Produkt-ID<input value={productId} onChange={(event) => setProductId(event.target.value)} style={{ width: '100%' }} /></label>
@@ -216,6 +238,21 @@ export default function Phase6ReleaseWorkflow({ resolvePayload }: Props) {
       </div>
       <label>Candidate-ID<input value={candidateId} onChange={(event) => setCandidateId(event.target.value)} style={{ width: '100%' }} /></label>
       <p><strong>Geplanter Release:</strong> <code>{releaseId}</code> · Version {version}</p>
+
+      <div className="card" style={{ marginTop: 12 }}>
+        <div className="section-header"><strong>Trusted Source Readiness</strong><span className={`badge ${missingSources.length === 0 && !snapshotsBusy ? 'badge-info' : 'badge-warning'}`}>{snapshotsBusy ? 'loading' : `${requiredSources.length - missingSources.length}/${requiredSources.length} trusted`}</span></div>
+        <table className="validation-table">
+          <thead><tr><th>Content Object</th><th>Revision</th><th>Status</th><th>Checksum / Registriert von</th></tr></thead>
+          <tbody>{requiredSources.map(({ object, revision }) => {
+            const snapshot = snapshots.find((item) => item.object_id === object.id && item.revision === revision);
+            return <tr key={`${object.id}@${revision}`}>
+              <td><code>{object.id}</code></td><td>{revision}</td>
+              <td><span className={`badge ${snapshot ? 'badge-info' : 'badge-warning'}`}>{snapshot ? 'trusted' : 'missing'}</span></td>
+              <td>{snapshot ? <><code>{snapshot.payload_checksum.slice(0, 16)}…</code> · {snapshot.registered_by}</> : 'Im Translation Workflow durch Approver registrieren.'}</td>
+            </tr>;
+          })}</tbody>
+        </table>
+      </div>
 
       {requiredTranslations.length > 0 && (
         <div className="card" style={{ marginTop: 12 }}>
@@ -238,7 +275,7 @@ export default function Phase6ReleaseWorkflow({ resolvePayload }: Props) {
 
       {blockingHint && <div className="summary-bar summary-fail">{blockingHint}</div>}
       <div className="panel-actions" style={{ marginTop: 10 }}>
-        <button className="btn-primary" disabled={busy || variantsBusy || !pinned || missingTranslations.length > 0 || !candidateId.trim() || !productId.trim() || !language.trim()} onClick={() => void createCandidate()}>
+        <button className="btn-primary" disabled={busy || snapshotsBusy || missingSources.length > 0 || variantsBusy || !pinned || missingTranslations.length > 0 || !candidateId.trim() || !productId.trim() || !language.trim()} onClick={() => void createCandidate()}>
           {busy ? 'Verarbeite…' : 'Release Candidate einfrieren'}
         </button>
       </div>
