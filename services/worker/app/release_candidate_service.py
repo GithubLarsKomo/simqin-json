@@ -6,9 +6,11 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 from typing import Any
 
+from .canonical_content_store import CanonicalContentStore
+from .canonical_source_validation import revision_matches_snapshot
 from .configuration import ConfigurationCatalog, ConfigurationParameter, ConfigurationValue
 from .content_objects import ContentObject, MultiplicityRule
-from .release_builder import build_language_release_snapshot
+from .release_builder import ReleaseBuildError, build_language_release_snapshot
 from .release_translation import build_release_translation_plan
 from .scoped_content_resolver import resolve_content_tree
 from .translation_store import TranslationVariantStore
@@ -44,6 +46,53 @@ def _persistent_variants(selection_rows: list[dict[str, Any]]) -> list[Translati
     return variants
 
 
+def _validate_trusted_sources(objects: dict[str, ContentObject], resolved_tree: Any) -> None:
+    """Require every resolved revision to equal its immutable trusted source."""
+    findings: list[dict[str, Any]] = []
+    store = CanonicalContentStore()
+    resolved_pairs = sorted({(block.source_object_id, block.source_revision) for block in resolved_tree.blocks})
+
+    for object_id, revision in resolved_pairs:
+        obj = objects.get(object_id)
+        source_revision = obj.get_revision(revision) if obj is not None else None
+        if source_revision is None:
+            findings.append({
+                "code": "canonical-source-revision-missing",
+                "message": f"Resolved canonical revision {object_id}@{revision} is unavailable",
+                "object_id": object_id,
+                "revision": revision,
+            })
+            continue
+        try:
+            trusted = store.get(object_id, revision)
+        except ValueError as exc:
+            findings.append({
+                "code": "canonical-source-integrity-failed",
+                "message": str(exc),
+                "object_id": object_id,
+                "revision": revision,
+            })
+            continue
+        if trusted is None:
+            findings.append({
+                "code": "canonical-source-not-registered",
+                "message": f"Trusted canonical source {object_id}@{revision} is not registered",
+                "object_id": object_id,
+                "revision": revision,
+            })
+            continue
+        if not revision_matches_snapshot(source_revision, trusted["revision_payload"]):
+            findings.append({
+                "code": "canonical-source-mismatch",
+                "message": f"Candidate content {object_id}@{revision} differs from its trusted canonical source snapshot",
+                "object_id": object_id,
+                "revision": revision,
+            })
+
+    if findings:
+        raise ReleaseBuildError(findings)
+
+
 def build_from_candidate_payload(
     payload: dict[str, Any],
     *,
@@ -64,6 +113,8 @@ def build_from_candidate_payload(
         revision_mode="pinned",
         multiplicity_rules=rules,
     )
+    _validate_trusted_sources(objects, tree)
+
     catalog = ConfigurationCatalog()
     for row in payload.get("configuration_parameters", []):
         catalog.add(ConfigurationParameter.from_dict(row))
