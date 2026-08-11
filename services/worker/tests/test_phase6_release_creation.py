@@ -7,6 +7,8 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 from jsonschema import Draft202012Validator
 
+from app.canonical_content_store import CanonicalContentStore
+from app.content_objects import ContentObjectRevision
 from app.phase6_main import app
 from app.translation_store import TranslationVariantStore
 from app.translations import TranslationVariant
@@ -81,6 +83,18 @@ def _persist_translation(
     status: str = "approved",
     canonical_revision: int = 1,
 ) -> None:
+    source_payload = _payload()["objects"][0]["revisions"][0].copy()
+    source_payload["revision"] = canonical_revision
+    source_payload["sentence_segments"] = [dict(item) for item in source_payload["sentence_segments"]]
+    source_payload["sentence_segments"][0]["source_revision"] = canonical_revision
+    source_revision = ContentObjectRevision.from_dict(source_payload)
+    canonical = CanonicalContentStore(storage_dir / "phase6-canonical-content.sqlite3").add(
+        object_id="root",
+        canonical_language="de-DE",
+        revision=source_revision,
+        registered_by="approver-source",
+    )
+
     store = TranslationVariantStore(storage_dir / "phase6-translations.sqlite3")
     variant = TranslationVariant.from_dict(
         {
@@ -90,6 +104,7 @@ def _persist_translation(
             "target_language": "en-US",
             "revision": 3,
             "status": "generated",
+            "provider_metadata": {"canonical_source_checksum": canonical["payload_checksum"]},
             "segment_translations": [
                 {
                     "segment_id": "seg-1",
@@ -206,6 +221,18 @@ def test_translated_release_materializes_persisted_approved_exact_revision(tmp_p
         }
     ]
     Draft202012Validator(_release_schema()).validate(body)
+
+
+def test_translated_release_rejects_same_revision_with_changed_source_content(tmp_path, monkeypatch):
+    monkeypatch.setenv("STORAGE_DIR", str(tmp_path))
+    _persist_translation(tmp_path)
+    payload = _translated_payload("rel-source-tampered")
+    payload["objects"][0]["revisions"][0]["canonical_content"] = "Manipuliert {{name}}."
+    payload["objects"][0]["revisions"][0]["sentence_segments"][0]["source_text"] = "Manipuliert {{name}}."
+    response = client.post("/api/v1/ifu/releases", headers=_APPROVER, json=payload)
+    assert response.status_code == 400
+    findings = response.json()["detail"]["findings"]
+    assert "translation-release-source-mismatch" in {item["code"] for item in findings}
 
 
 def test_translated_release_ignores_untrusted_variant_payload(tmp_path, monkeypatch):
