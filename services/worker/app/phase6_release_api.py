@@ -20,6 +20,8 @@ router = APIRouter(prefix="/api/v1", tags=["phase6-releases"])
 
 class ReleaseCandidateCreatePayload(BaseModel):
     candidate_id: str
+    release_id: str
+    version: int = Field(ge=1)
     product_id: str
     language: str
     root_object_ids: list[str]
@@ -44,8 +46,6 @@ class ReleaseCandidateDecisionPayload(BaseModel):
 
 class ReleaseCreatePayload(BaseModel):
     candidate_id: str
-    release_id: str
-    version: int = Field(ge=1)
 
 
 def _principal(user_id: str | None, role: str | None) -> Phase6Principal:
@@ -167,8 +167,8 @@ def create_release(
             raise HTTPException(status_code=400, detail="Release candidate must be approved before publication")
         release = build_from_candidate_payload(
             candidate["payload"],
-            release_id=payload.release_id,
-            version=payload.version,
+            release_id=candidate["release_id"],
+            version=int(candidate["version"]),
             created_by=principal.user_id,
             candidate_id=candidate["candidate_id"],
             candidate_checksum=candidate["payload_checksum"],
