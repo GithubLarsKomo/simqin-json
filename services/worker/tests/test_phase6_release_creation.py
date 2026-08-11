@@ -90,25 +90,17 @@ def _persist_translation(
     status: str = "approved",
     canonical_revision: int = 1,
 ) -> None:
-    source = ContentObjectRevision.from_dict(
-        {
-            "object_id": "root",
-            "revision": canonical_revision,
-            "canonical_content": "Hallo {{name}}.",
-            "sentence_segments": [
-                {
-                    "segment_id": "seg-1",
-                    "segment_type": "sentence",
-                    "source_text": "Hallo {{name}}.",
-                    "source_revision": canonical_revision,
-                    "order": 0,
-                    "immutable_boundary": True,
-                }
-            ],
-            "slots": [{"slot_id": "name", "type": "term", "required": True}],
-            "approval_status": "approved",
-        }
-    )
+    # Derive the trusted canonical source from the same release fixture rather
+    # than maintaining a second hand-written copy. The trust boundary compares
+    # canonical content, segment structure, approval state and slot definitions
+    # exactly, so fixture drift must be impossible here.
+    source_payload = dict(_candidate_payload()["objects"][0]["revisions"][0])
+    source_payload["revision"] = canonical_revision
+    source_payload["sentence_segments"] = [
+        {**segment, "source_revision": canonical_revision}
+        for segment in source_payload["sentence_segments"]
+    ]
+    source = ContentObjectRevision.from_dict(source_payload)
     trusted = CanonicalContentStore(storage_dir / "phase6-canonical-content.sqlite3").add(
         object_id="root",
         canonical_language="de-DE",
