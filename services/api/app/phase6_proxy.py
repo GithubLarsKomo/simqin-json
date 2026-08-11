@@ -159,6 +159,35 @@ async def phase6_release_verify(body: dict[str, Any]) -> dict[str, Any]:
     return await _post("/api/v1/ifu/releases/verify", body, headers=_trusted_headers())
 
 
+@router.post("/ifu/release-candidates", status_code=201)
+async def phase6_create_release_candidate(body: dict[str, Any]) -> dict[str, Any]:
+    return await _post("/api/v1/ifu/release-candidates", body, headers=_trusted_headers())
+
+
+@router.get("/ifu/release-candidates")
+async def phase6_list_release_candidates() -> dict[str, Any]:
+    return await _get("/api/v1/ifu/release-candidates")
+
+
+@router.get("/ifu/release-candidates/{candidate_id}")
+async def phase6_get_release_candidate(candidate_id: str) -> dict[str, Any]:
+    return await _get(f"/api/v1/ifu/release-candidates/{candidate_id}")
+
+
+@router.get("/ifu/release-candidates/{candidate_id}/history")
+async def phase6_get_release_candidate_history(candidate_id: str) -> dict[str, Any]:
+    return await _get(f"/api/v1/ifu/release-candidates/{candidate_id}/history")
+
+
+@router.post("/ifu/release-candidates/{candidate_id}/decision")
+async def phase6_decide_release_candidate(candidate_id: str, body: dict[str, Any]) -> dict[str, Any]:
+    return await _post(
+        f"/api/v1/ifu/release-candidates/{candidate_id}/decision",
+        body,
+        headers=_trusted_headers(),
+    )
+
+
 @router.post("/ifu/releases", status_code=201)
 async def phase6_create_release(body: dict[str, Any]) -> dict[str, Any]:
     return await _post("/api/v1/ifu/releases", body, headers=_trusted_headers())
