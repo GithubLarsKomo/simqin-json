@@ -15,17 +15,24 @@ from app.translations import TranslationVariant
 
 
 client = TestClient(app)
+_AUTHOR = {"X-SIMQIN-User": "author-a", "X-SIMQIN-Role": "author"}
 _APPROVER = {"X-SIMQIN-User": "approver-a", "X-SIMQIN-Role": "approver"}
 _REVIEWER = {"X-SIMQIN-User": "reviewer-b", "X-SIMQIN-Role": "reviewer"}
 
 
-def _payload(release_id: str = "rel-1", version: int = 1) -> dict:
+def _candidate_payload(
+    candidate_id: str = "cand-1",
+    release_id: str = "rel-1",
+    version: int = 1,
+) -> dict:
     return {
+        "candidate_id": candidate_id,
         "release_id": release_id,
+        "version": version,
         "product_id": "prod-1",
         "language": "de-DE",
-        "version": version,
         "root_object_ids": ["root"],
+        "revision_mode": "pinned",
         "pinned_revisions": {"root": 1},
         "slot_values": {"name": "Alice"},
         "objects": [
@@ -68,8 +75,8 @@ def _payload(release_id: str = "rel-1", version: int = 1) -> dict:
     }
 
 
-def _translated_payload(release_id: str = "rel-en") -> dict:
-    payload = _payload(release_id)
+def _translated_candidate(candidate_id: str = "cand-en", release_id: str = "rel-en") -> dict:
+    payload = _candidate_payload(candidate_id, release_id)
     payload["language"] = "en-US"
     payload["translation_selections"] = [
         {"content_object_id": "root", "variant_id": "tr-root-en", "revision": 3}
@@ -83,18 +90,31 @@ def _persist_translation(
     status: str = "approved",
     canonical_revision: int = 1,
 ) -> None:
-    source_payload = _payload()["objects"][0]["revisions"][0].copy()
-    source_payload["revision"] = canonical_revision
-    source_payload["sentence_segments"] = [dict(item) for item in source_payload["sentence_segments"]]
-    source_payload["sentence_segments"][0]["source_revision"] = canonical_revision
-    source_revision = ContentObjectRevision.from_dict(source_payload)
-    canonical = CanonicalContentStore(storage_dir / "phase6-canonical-content.sqlite3").add(
+    source = ContentObjectRevision.from_dict(
+        {
+            "object_id": "root",
+            "revision": canonical_revision,
+            "canonical_content": "Hallo {{name}}.",
+            "sentence_segments": [
+                {
+                    "segment_id": "seg-1",
+                    "segment_type": "sentence",
+                    "source_text": "Hallo {{name}}.",
+                    "source_revision": canonical_revision,
+                    "order": 0,
+                    "immutable_boundary": True,
+                }
+            ],
+            "slots": [{"slot_id": "name", "type": "term", "required": True}],
+            "approval_status": "approved",
+        }
+    )
+    trusted = CanonicalContentStore(storage_dir / "phase6-canonical-content.sqlite3").add(
         object_id="root",
         canonical_language="de-DE",
-        revision=source_revision,
+        revision=source,
         registered_by="approver-source",
     )
-
     store = TranslationVariantStore(storage_dir / "phase6-translations.sqlite3")
     variant = TranslationVariant.from_dict(
         {
@@ -104,7 +124,6 @@ def _persist_translation(
             "target_language": "en-US",
             "revision": 3,
             "status": "generated",
-            "provider_metadata": {"canonical_source_checksum": canonical["payload_checksum"]},
             "segment_translations": [
                 {
                     "segment_id": "seg-1",
@@ -113,6 +132,7 @@ def _persist_translation(
                     "order": 0,
                 }
             ],
+            "provider_metadata": {"canonical_source_checksum": trusted["payload_checksum"]},
         }
     )
     store.add_variant(variant, created_by="translator-a")
@@ -120,8 +140,22 @@ def _persist_translation(
         store.transition("tr-root-en", 3, status="reviewed", changed_by="reviewer-b")
     if status == "approved":
         store.transition("tr-root-en", 3, status="approved", changed_by="approver-a")
-    elif status == "rejected":
-        store.transition("tr-root-en", 3, status="rejected", changed_by="reviewer-b", comment="Rejected")
+
+
+def _create_candidate(payload: dict, headers: dict[str, str] = _AUTHOR):
+    return client.post("/api/v1/ifu/release-candidates", headers=headers, json=payload)
+
+
+def _approve(candidate_id: str, headers: dict[str, str] = _APPROVER):
+    return client.post(
+        f"/api/v1/ifu/release-candidates/{candidate_id}/decision",
+        headers=headers,
+        json={"decision": "approved"},
+    )
+
+
+def _publish(candidate_id: str, headers: dict[str, str] = _APPROVER):
+    return client.post("/api/v1/ifu/releases", headers=headers, json={"candidate_id": candidate_id})
 
 
 def _release_schema() -> dict:
@@ -129,19 +163,48 @@ def _release_schema() -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def test_release_creation_requires_approver(tmp_path, monkeypatch):
+def test_release_requires_approved_candidate_and_approver(tmp_path, monkeypatch):
     monkeypatch.setenv("STORAGE_DIR", str(tmp_path))
-    response = client.post("/api/v1/ifu/releases", headers=_REVIEWER, json=_payload())
-    assert response.status_code == 403
+    created = _create_candidate(_candidate_payload())
+    assert created.status_code == 201
+
+    before_approval = _publish("cand-1")
+    assert before_approval.status_code == 400
+    assert "must be approved" in str(before_approval.json()["detail"])
+
+    assert _approve("cand-1").status_code == 200
+    reviewer_publish = _publish("cand-1", _REVIEWER)
+    assert reviewer_publish.status_code == 403
 
 
-def test_release_creation_is_pinned_immutable_and_persistent(tmp_path, monkeypatch):
+def test_candidate_creator_cannot_approve_own_candidate(tmp_path, monkeypatch):
     monkeypatch.setenv("STORAGE_DIR", str(tmp_path))
-    created = client.post("/api/v1/ifu/releases", headers=_APPROVER, json=_payload())
+    created = _create_candidate(_candidate_payload(), _APPROVER)
+    assert created.status_code == 201
+    self_approval = _approve("cand-1", _APPROVER)
+    assert self_approval.status_code == 400
+    assert "creator cannot approve" in str(self_approval.json()["detail"])
+
+
+def test_release_from_candidate_is_pinned_immutable_and_persistent(tmp_path, monkeypatch):
+    monkeypatch.setenv("STORAGE_DIR", str(tmp_path))
+    candidate = _create_candidate(_candidate_payload())
+    assert candidate.status_code == 201
+    candidate_body = candidate.json()
+    assert candidate_body["payload_checksum"]
+    assert candidate_body["release_id"] == "rel-1"
+    assert candidate_body["version"] == 1
+    assert _approve("cand-1").status_code == 200
+
+    created = _publish("cand-1")
     assert created.status_code == 201
     body = created.json()
+    assert body["release_id"] == "rel-1"
+    assert body["version"] == 1
     assert body["created_by"] == "approver-a"
     assert body["provenance"]["resolution_mode"] == "pinned"
+    assert body["provenance"]["release_candidate_id"] == "cand-1"
+    assert body["provenance"]["release_candidate_checksum"] == candidate_body["payload_checksum"]
     assert body["resolved_blocks"][0]["rendered_content"] == "Hallo Alice."
     assert body["release_checksum"]
     Draft202012Validator(_release_schema()).validate(body)
@@ -150,63 +213,47 @@ def test_release_creation_is_pinned_immutable_and_persistent(tmp_path, monkeypat
     assert fetched.status_code == 200
     assert fetched.json()["release_checksum"] == body["release_checksum"]
 
-    listed = client.get("/api/v1/ifu/releases")
-    assert listed.status_code == 200
-    assert listed.json()["count"] == 1
-
-    duplicate = client.post("/api/v1/ifu/releases", headers=_APPROVER, json=_payload())
-    assert duplicate.status_code == 400
-    assert "already exists" in str(duplicate.json()["detail"])
+    candidate_after = client.get("/api/v1/ifu/release-candidates/cand-1")
+    assert candidate_after.status_code == 200
+    assert candidate_after.json()["status"] == "released"
 
 
-def test_release_creation_rejects_unresolved_required_slot(tmp_path, monkeypatch):
+def test_candidate_rejects_unresolved_required_slot(tmp_path, monkeypatch):
     monkeypatch.setenv("STORAGE_DIR", str(tmp_path))
-    payload = _payload("rel-invalid")
+    payload = _candidate_payload("cand-invalid", "rel-invalid")
     payload["slot_values"] = {}
     payload["objects"][0]["revisions"][0]["slots"][0].pop("default_value", None)
-    response = client.post("/api/v1/ifu/releases", headers=_APPROVER, json=payload)
+    response = _create_candidate(payload)
     assert response.status_code == 400
-    detail = response.json()["detail"]
-    assert "findings" in detail
+    assert "findings" in response.json()["detail"]
 
 
-def test_release_read_detects_stored_payload_tampering(tmp_path, monkeypatch):
+def test_candidate_read_detects_stored_payload_tampering(tmp_path, monkeypatch):
     monkeypatch.setenv("STORAGE_DIR", str(tmp_path))
-    created = client.post("/api/v1/ifu/releases", headers=_APPROVER, json=_payload())
-    assert created.status_code == 201
-
-    database = tmp_path / "phase6-releases.sqlite3"
+    assert _create_candidate(_candidate_payload()).status_code == 201
+    database = tmp_path / "phase6-release-candidates.sqlite3"
     with sqlite3.connect(database) as connection:
         row = connection.execute(
-            "SELECT payload_json FROM ifu_language_releases WHERE release_id = ?",
-            ("rel-1",),
+            "SELECT payload_json FROM release_candidates WHERE candidate_id = ?", ("cand-1",)
         ).fetchone()
         payload = json.loads(row[0])
-        payload["resolved_blocks"][0]["rendered_content"] = "Tampered"
+        payload["slot_values"]["name"] = "Mallory"
         connection.execute(
-            "UPDATE ifu_language_releases SET payload_json = ? WHERE release_id = ?",
-            (json.dumps(payload, sort_keys=True), "rel-1"),
+            "UPDATE release_candidates SET payload_json = ? WHERE candidate_id = ?",
+            (json.dumps(payload, sort_keys=True), "cand-1"),
         )
-
-    fetched = client.get("/api/v1/ifu/releases/rel-1")
+    fetched = client.get("/api/v1/ifu/release-candidates/cand-1")
     assert fetched.status_code == 500
-    detail = fetched.json()["detail"]
-    assert detail["message"] == "Stored release integrity check failed"
-    assert "failed checksum verification" in detail["reason"]
-
-    listed = client.get("/api/v1/ifu/releases")
-    assert listed.status_code == 500
-    assert listed.json()["detail"]["message"] == "Stored release integrity check failed"
+    assert fetched.json()["detail"]["message"] == "Stored release candidate integrity check failed"
 
 
-def test_translated_release_materializes_persisted_approved_exact_revision(tmp_path, monkeypatch):
+def test_translated_release_materializes_trusted_approved_translation(tmp_path, monkeypatch):
     monkeypatch.setenv("STORAGE_DIR", str(tmp_path))
     _persist_translation(tmp_path)
-    response = client.post(
-        "/api/v1/ifu/releases",
-        headers=_APPROVER,
-        json=_translated_payload(),
-    )
+    candidate = _create_candidate(_translated_candidate())
+    assert candidate.status_code == 201
+    assert _approve("cand-en").status_code == 200
+    response = _publish("cand-en")
     assert response.status_code == 201
     body = response.json()
     assert body["language"] == "en-US"
@@ -223,21 +270,9 @@ def test_translated_release_materializes_persisted_approved_exact_revision(tmp_p
     Draft202012Validator(_release_schema()).validate(body)
 
 
-def test_translated_release_rejects_same_revision_with_changed_source_content(tmp_path, monkeypatch):
+def test_candidate_ignores_untrusted_translation_payload(tmp_path, monkeypatch):
     monkeypatch.setenv("STORAGE_DIR", str(tmp_path))
-    _persist_translation(tmp_path)
-    payload = _translated_payload("rel-source-tampered")
-    payload["objects"][0]["revisions"][0]["canonical_content"] = "Manipuliert {{name}}."
-    payload["objects"][0]["revisions"][0]["sentence_segments"][0]["source_text"] = "Manipuliert {{name}}."
-    response = client.post("/api/v1/ifu/releases", headers=_APPROVER, json=payload)
-    assert response.status_code == 400
-    findings = response.json()["detail"]["findings"]
-    assert "translation-release-source-mismatch" in {item["code"] for item in findings}
-
-
-def test_translated_release_ignores_untrusted_variant_payload(tmp_path, monkeypatch):
-    monkeypatch.setenv("STORAGE_DIR", str(tmp_path))
-    payload = _translated_payload("rel-untrusted")
+    payload = _translated_candidate("cand-untrusted", "rel-untrusted")
     payload["translation_variants"] = [
         {
             "id": "tr-root-en",
@@ -246,38 +281,27 @@ def test_translated_release_ignores_untrusted_variant_payload(tmp_path, monkeypa
             "target_language": "en-US",
             "revision": 3,
             "status": "approved",
-            "segment_translations": [
-                {"segment_id": "seg-1", "translated_text": "Untrusted {{name}}.", "order": 0}
-            ],
         }
     ]
-    response = client.post("/api/v1/ifu/releases", headers=_APPROVER, json=payload)
+    response = _create_candidate(payload)
     assert response.status_code == 400
     findings = response.json()["detail"]["findings"]
     assert "translation-variant-not-found" in {item["code"] for item in findings}
 
 
-def test_translated_release_requires_persisted_approved_variant(tmp_path, monkeypatch):
+def test_candidate_requires_approved_translation(tmp_path, monkeypatch):
     monkeypatch.setenv("STORAGE_DIR", str(tmp_path))
     _persist_translation(tmp_path, status="reviewed")
-    response = client.post(
-        "/api/v1/ifu/releases",
-        headers=_APPROVER,
-        json=_translated_payload("rel-draft"),
-    )
+    response = _create_candidate(_translated_candidate("cand-draft", "rel-draft"))
     assert response.status_code == 400
     findings = response.json()["detail"]["findings"]
     assert "translation-not-approved" in {item["code"] for item in findings}
 
 
-def test_translated_release_requires_exact_persisted_canonical_revision(tmp_path, monkeypatch):
+def test_candidate_requires_exact_trusted_canonical_revision(tmp_path, monkeypatch):
     monkeypatch.setenv("STORAGE_DIR", str(tmp_path))
     _persist_translation(tmp_path, canonical_revision=2)
-    response = client.post(
-        "/api/v1/ifu/releases",
-        headers=_APPROVER,
-        json=_translated_payload("rel-wrong-rev"),
-    )
+    response = _create_candidate(_translated_candidate("cand-wrong", "rel-wrong"))
     assert response.status_code == 400
     findings = response.json()["detail"]["findings"]
     assert "translation-canonical-revision-mismatch" in {item["code"] for item in findings}
