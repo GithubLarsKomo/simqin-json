@@ -1,8 +1,12 @@
 """Scoped-slot adapter for the Phase 6 content resolver.
 
 This module preserves the existing resolver implementation while replacing its
-single slot-render hook with the shared scoped lookup rule.  It is intentionally
+single slot-render hook with the shared scoped lookup rule. It is intentionally
 small so the legacy flat ``slot_values`` contract remains backward-compatible.
+
+The adapter is a compatibility layer only. Provenance remains canonical and
+contains resolved slot values under ``object@revision:slot`` keys; lookup-source
+metadata is deliberately not persisted into release-relevant provenance.
 """
 
 from __future__ import annotations
@@ -26,7 +30,7 @@ def _render_template_scoped(
     definitions = {slot.slot_id: slot for slot in slots}
     values: dict[str, Any] = {}
     for slot_id, slot in definitions.items():
-        value, source_key = resolve_slot_value(
+        value, _source_key = resolve_slot_value(
             supplied,
             object_id=object_id,
             revision=revision,
@@ -45,10 +49,7 @@ def _render_template_scoped(
                 )
             )
         values[slot_id] = value
-        provenance_key = f"{object_id}@{revision}:{slot_id}"
-        tree.provenance.slot_values[provenance_key] = value
-        if source_key:
-            tree.provenance.slot_values[f"{provenance_key}#source"] = source_key
+        tree.provenance.slot_values[f"{object_id}@{revision}:{slot_id}"] = value
 
     def replace(match: re.Match[str]) -> str:
         slot_id = match.group(1)
@@ -69,7 +70,9 @@ def _render_template_scoped(
     return _resolver._PLACEHOLDER.sub(replace, template), values
 
 
-# Install the scoped renderer once for all users of the shared resolver module.
+# Install the scoped renderer for all users of the shared resolver module.
+# Python's module cache makes ordinary imports idempotent; assigning the same
+# deterministic function again during an explicit module reload is harmless.
 _resolver._render_template = _render_template_scoped
 
 resolve_content_tree = _resolver.resolve_content_tree
