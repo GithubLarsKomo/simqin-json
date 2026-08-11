@@ -91,6 +91,21 @@ async def phase6_content_resolve(body: dict[str, Any]) -> dict[str, Any]:
     return await _post("/api/v1/content/resolve", body)
 
 
+@router.post("/content/canonical-snapshots", status_code=201)
+async def phase6_create_canonical_snapshot(body: dict[str, Any]) -> dict[str, Any]:
+    return await _post("/api/v1/content/canonical-snapshots", body, headers=_trusted_headers())
+
+
+@router.get("/content/canonical-snapshots")
+async def phase6_list_canonical_snapshots() -> dict[str, Any]:
+    return await _get("/api/v1/content/canonical-snapshots")
+
+
+@router.get("/content/canonical-snapshots/{object_id}/{revision}")
+async def phase6_get_canonical_snapshot(object_id: str, revision: int) -> dict[str, Any]:
+    return await _get(f"/api/v1/content/canonical-snapshots/{object_id}/{revision}")
+
+
 @router.post("/translations/validate")
 async def phase6_translation_validate(body: dict[str, Any]) -> dict[str, Any]:
     return await _post("/api/v1/translations/validate", body)
