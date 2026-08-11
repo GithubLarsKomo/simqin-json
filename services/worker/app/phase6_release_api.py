@@ -1,32 +1,27 @@
-"""Privileged Phase 6 immutable release creation and retrieval API."""
+"""Four-eyes Phase 6 release candidate and immutable publication API."""
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from typing import Any, Literal
 
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field
 
-from .configuration import ConfigurationCatalog, ConfigurationParameter, ConfigurationValue
-from .content_objects import ContentObject, MultiplicityRule
-from .scoped_content_resolver import resolve_content_tree
 from .phase6_roles import Phase6Principal
-from .release_builder import ReleaseBuildError, build_language_release_snapshot
+from .release_builder import ReleaseBuildError
+from .release_candidate_service import build_from_candidate_payload, validate_candidate_payload
+from .release_candidate_store import ReleaseCandidateStore
 from .release_store import ReleaseStore
-from .release_translation import ReleaseTranslationError, build_release_translation_plan
-from .translation_store import TranslationVariantStore
-from .translations import TranslationVariant
+from .release_translation import ReleaseTranslationError
 
 
 router = APIRouter(prefix="/api/v1", tags=["phase6-releases"])
 
 
-class ReleaseCreatePayload(BaseModel):
-    release_id: str
+class ReleaseCandidateCreatePayload(BaseModel):
+    candidate_id: str
     product_id: str
     language: str
-    version: int = Field(ge=1)
     root_object_ids: list[str]
     objects: list[dict[str, Any]]
     pinned_revisions: dict[str, int]
@@ -36,61 +31,124 @@ class ReleaseCreatePayload(BaseModel):
     revision_mode: Literal["pinned"] = "pinned"
     configuration_parameters: list[dict[str, Any]] = Field(default_factory=list)
     configuration_values: list[dict[str, Any]] = Field(default_factory=list)
-    # Deprecated compatibility field. Release creation no longer trusts translation
-    # payloads supplied by the browser; selected variants are loaded from SQLite.
-    translation_variants: list[dict[str, Any]] = Field(default_factory=list)
     translation_selections: list[dict[str, Any]] = Field(default_factory=list)
     ruleset_revision: str = ""
     terminology_profile_revision: str = ""
     source_release_id: str = ""
 
 
+class ReleaseCandidateDecisionPayload(BaseModel):
+    decision: Literal["approved", "rejected"]
+    comment: str = ""
+
+
+class ReleaseCreatePayload(BaseModel):
+    candidate_id: str
+    release_id: str
+    version: int = Field(ge=1)
+
+
 def _principal(user_id: str | None, role: str | None) -> Phase6Principal:
     try:
-        principal = Phase6Principal.from_trusted_headers(user_id, role)
-        principal.require("release")
-        return principal
+        return Phase6Principal.from_trusted_headers(user_id, role)
     except ValueError as exc:
         raise HTTPException(status_code=401, detail=str(exc)) from exc
+
+
+def _release_principal(user_id: str | None, role: str | None) -> Phase6Principal:
+    principal = _principal(user_id, role)
+    try:
+        principal.require("release")
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
+    return principal
 
 
-def _objects(rows: list[dict[str, Any]]) -> dict[str, ContentObject]:
-    parsed: dict[str, ContentObject] = {}
-    for row in rows:
-        obj = ContentObject.from_dict(row)
-        if obj.id in parsed:
-            raise ValueError(f"Duplicate ContentObject id {obj.id}")
-        parsed[obj.id] = obj
-    return parsed
+def _candidate_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, ReleaseTranslationError):
+        return HTTPException(status_code=400, detail={"message": str(exc), "findings": exc.findings})
+    if isinstance(exc, ReleaseBuildError):
+        return HTTPException(status_code=400, detail={"message": str(exc), "findings": exc.findings})
+    return HTTPException(status_code=400, detail=str(exc))
 
 
-def _persistent_variants(selection_rows: list[dict[str, Any]]) -> list[TranslationVariant]:
-    store = TranslationVariantStore()
-    variants: list[TranslationVariant] = []
-    seen: set[tuple[str, int]] = set()
-    for row in selection_rows:
-        variant_id = str(row.get("variant_id", "")).strip()
-        revision = row.get("revision")
-        if not variant_id or not isinstance(revision, int) or revision < 1:
-            continue
-        key = (variant_id, revision)
-        if key in seen:
-            continue
-        seen.add(key)
-        persisted = store.get(variant_id, revision)
-        if persisted is None:
-            continue
-        variants.append(TranslationVariant.from_dict(persisted))
-    return variants
+def _integrity_error(exc: ValueError, message: str) -> HTTPException:
+    return HTTPException(status_code=500, detail={"message": message, "reason": str(exc)})
 
 
-def _integrity_error(exc: ValueError) -> HTTPException:
-    return HTTPException(
-        status_code=500,
-        detail={"message": "Stored release integrity check failed", "reason": str(exc)},
-    )
+@router.post("/ifu/release-candidates", status_code=201)
+def create_release_candidate(
+    payload: ReleaseCandidateCreatePayload,
+    x_simqin_user: str | None = Header(default=None, alias="X-SIMQIN-User"),
+    x_simqin_role: str | None = Header(default=None, alias="X-SIMQIN-Role"),
+) -> dict[str, Any]:
+    principal = _principal(x_simqin_user, x_simqin_role)
+    frozen = payload.model_dump()
+    candidate_id = frozen.pop("candidate_id")
+    try:
+        validation = validate_candidate_payload(frozen)
+        saved = ReleaseCandidateStore().add(candidate_id, frozen, created_by=principal.user_id)
+        return {**saved, "validation": validation}
+    except (ReleaseTranslationError, ReleaseBuildError, TypeError, ValueError, KeyError) as exc:
+        raise _candidate_error(exc) from exc
+
+
+@router.get("/ifu/release-candidates")
+def list_release_candidates() -> dict[str, Any]:
+    try:
+        rows = ReleaseCandidateStore().list()
+    except ValueError as exc:
+        raise _integrity_error(exc, "Stored release candidate integrity check failed") from exc
+    return {"candidates": rows, "count": len(rows)}
+
+
+@router.get("/ifu/release-candidates/{candidate_id}")
+def get_release_candidate(candidate_id: str) -> dict[str, Any]:
+    try:
+        row = ReleaseCandidateStore().get(candidate_id)
+    except ValueError as exc:
+        raise _integrity_error(exc, "Stored release candidate integrity check failed") from exc
+    if row is None:
+        raise HTTPException(status_code=404, detail="Release candidate not found")
+    return row
+
+
+@router.get("/ifu/release-candidates/{candidate_id}/history")
+def get_release_candidate_history(candidate_id: str) -> dict[str, Any]:
+    store = ReleaseCandidateStore()
+    try:
+        if store.get(candidate_id) is None:
+            raise HTTPException(status_code=404, detail="Release candidate not found")
+    except ValueError as exc:
+        raise _integrity_error(exc, "Stored release candidate integrity check failed") from exc
+    events = store.history(candidate_id)
+    return {"candidate_id": candidate_id, "events": events, "count": len(events)}
+
+
+@router.post("/ifu/release-candidates/{candidate_id}/decision")
+def decide_release_candidate(
+    candidate_id: str,
+    payload: ReleaseCandidateDecisionPayload,
+    x_simqin_user: str | None = Header(default=None, alias="X-SIMQIN-User"),
+    x_simqin_role: str | None = Header(default=None, alias="X-SIMQIN-Role"),
+) -> dict[str, Any]:
+    principal = _release_principal(x_simqin_user, x_simqin_role)
+    store = ReleaseCandidateStore()
+    try:
+        candidate = store.get(candidate_id)
+        if candidate is None:
+            raise HTTPException(status_code=404, detail="Release candidate not found")
+        if principal.user_id == candidate["created_by"]:
+            raise HTTPException(status_code=400, detail="Four-eyes rule violation: release candidate creator cannot approve or reject own candidate")
+        if payload.decision == "approved":
+            validation = validate_candidate_payload(candidate["payload"])
+            updated = store.transition(candidate_id, status="approved", changed_by=principal.user_id, comment=payload.comment)
+            return {**updated, "validation": validation}
+        return store.transition(candidate_id, status="rejected", changed_by=principal.user_id, comment=payload.comment)
+    except HTTPException:
+        raise
+    except (ReleaseTranslationError, ReleaseBuildError, TypeError, ValueError, KeyError) as exc:
+        raise _candidate_error(exc) from exc
 
 
 @router.post("/ifu/releases", status_code=201)
@@ -99,56 +157,29 @@ def create_release(
     x_simqin_user: str | None = Header(default=None, alias="X-SIMQIN-User"),
     x_simqin_role: str | None = Header(default=None, alias="X-SIMQIN-Role"),
 ) -> dict[str, Any]:
-    principal = _principal(x_simqin_user, x_simqin_role)
+    principal = _release_principal(x_simqin_user, x_simqin_role)
+    candidates = ReleaseCandidateStore()
     try:
-        objects = _objects(payload.objects)
-        rules = [MultiplicityRule.from_dict(row) for row in payload.multiplicity_rules]
-        tree = resolve_content_tree(
-            root_object_ids=payload.root_object_ids,
-            objects=objects,
-            pinned_revisions=payload.pinned_revisions,
-            config_values=payload.slot_values,
-            aliases=payload.aliases,
-            revision_mode=payload.revision_mode,
-            multiplicity_rules=rules,
-        )
-        catalog = ConfigurationCatalog()
-        for row in payload.configuration_parameters:
-            catalog.add(ConfigurationParameter.from_dict(row))
-        values = [ConfigurationValue.from_dict(row) for row in payload.configuration_values]
-        variants = _persistent_variants(payload.translation_selections)
-        translation_plan = build_release_translation_plan(
+        candidate = candidates.get(payload.candidate_id)
+        if candidate is None:
+            raise HTTPException(status_code=404, detail="Release candidate not found")
+        if candidate["status"] != "approved":
+            raise HTTPException(status_code=400, detail="Release candidate must be approved before publication")
+        release = build_from_candidate_payload(
+            candidate["payload"],
             release_id=payload.release_id,
-            release_language=payload.language,
-            objects=objects,
-            resolved_tree=tree,
-            variants=variants,
-            selection_rows=payload.translation_selections,
-            selected_by=principal.user_id,
-        )
-        release = build_language_release_snapshot(
-            release_id=payload.release_id,
-            product_id=payload.product_id,
-            language=payload.language,
             version=payload.version,
-            resolved_tree=tree,
-            configuration_catalog=catalog,
-            configuration_values=values,
-            translation_selections=translation_plan.selections,
-            rendered_block_overrides=translation_plan.rendered_block_overrides,
-            ruleset_revision=payload.ruleset_revision,
-            terminology_profile_revision=payload.terminology_profile_revision,
-            source_release_id=payload.source_release_id,
-            created_at=datetime.now(timezone.utc).isoformat(),
             created_by=principal.user_id,
+            candidate_id=candidate["candidate_id"],
+            candidate_checksum=candidate["payload_checksum"],
         )
-        return ReleaseStore().add(release)
-    except ReleaseTranslationError as exc:
-        raise HTTPException(status_code=400, detail={"message": str(exc), "findings": exc.findings}) from exc
-    except ReleaseBuildError as exc:
-        raise HTTPException(status_code=400, detail={"message": str(exc), "findings": exc.findings}) from exc
-    except (TypeError, ValueError, KeyError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        stored = ReleaseStore().add(release)
+        candidates.transition(payload.candidate_id, status="released", changed_by=principal.user_id)
+        return stored
+    except HTTPException:
+        raise
+    except (ReleaseTranslationError, ReleaseBuildError, TypeError, ValueError, KeyError) as exc:
+        raise _candidate_error(exc) from exc
 
 
 @router.get("/ifu/releases")
@@ -156,7 +187,7 @@ def list_releases() -> dict[str, Any]:
     try:
         releases = ReleaseStore().list()
     except ValueError as exc:
-        raise _integrity_error(exc) from exc
+        raise _integrity_error(exc, "Stored release integrity check failed") from exc
     return {"releases": releases, "count": len(releases)}
 
 
@@ -165,7 +196,7 @@ def get_release(release_id: str) -> dict[str, Any]:
     try:
         release = ReleaseStore().get(release_id)
     except ValueError as exc:
-        raise _integrity_error(exc) from exc
+        raise _integrity_error(exc, "Stored release integrity check failed") from exc
     if release is None:
         raise HTTPException(status_code=404, detail="Release not found")
     return release
