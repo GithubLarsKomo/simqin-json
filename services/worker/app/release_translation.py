@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
+from .canonical_content_store import CanonicalContentStore
 from .content_objects import ContentObject
 from .translation_validation import TranslationSelection, validate_translation_variant
 from .translations import TranslationVariant
@@ -74,6 +75,15 @@ def _render_slots(template: str, values: dict[str, Any]) -> tuple[str, list[str]
     return _PLACEHOLDER_RE.sub(replace, template), sorted(set(missing))
 
 
+def _matches_trusted_source(source_revision: Any, snapshot_payload: dict[str, Any]) -> bool:
+    return (
+        source_revision.canonical_content == snapshot_payload.get("canonical_content", "")
+        and source_revision.sentence_segments == snapshot_payload.get("sentence_segments", [])
+        and source_revision.approval_status == snapshot_payload.get("approval_status", "")
+        and [slot.to_dict() for slot in source_revision.slots] == snapshot_payload.get("slots", [])
+    )
+
+
 def build_release_translation_plan(
     *,
     release_id: str,
@@ -86,9 +96,9 @@ def build_release_translation_plan(
 ) -> ReleaseTranslationPlan:
     """Validate explicit translation pins and materialize target-language blocks.
 
-    Canonical-language blocks need no translation selection. Every resolved block
-    whose canonical language differs from the release language requires exactly
-    one explicit approved variant pinned by variant id and variant revision.
+    Canonical-language blocks need no translation selection. Every translated
+    block must use an approved variant bound to the immutable trusted canonical
+    source snapshot for the exact ContentObject revision.
     """
     findings: list[dict[str, Any]] = []
     variant_index = {(item.id, item.revision): item for item in variants}
@@ -115,9 +125,10 @@ def build_release_translation_plan(
         selections_by_object[object_id] = row
 
     resolved_pairs = sorted({(block.source_object_id, block.source_revision) for block in resolved_tree.blocks})
-    selection_by_pair: dict[tuple[str, int], tuple[TranslationSelection, TranslationVariant]] = {}
+    selection_by_pair: dict[tuple[str, int], tuple[TranslationSelection, TranslationVariant, dict[str, Any]]] = {}
     results: list[TranslationSelection] = []
     now = datetime.now(timezone.utc).isoformat()
+    canonical_store = CanonicalContentStore()
 
     for object_id, canonical_revision in resolved_pairs:
         obj = objects.get(object_id)
@@ -184,10 +195,40 @@ def build_release_translation_plan(
                 "object_id": object_id,
             })
             continue
+        try:
+            trusted_source = canonical_store.get(object_id, canonical_revision)
+        except ValueError as exc:
+            findings.append({
+                "code": "translation-canonical-source-integrity-failed",
+                "message": str(exc),
+                "object_id": object_id,
+            })
+            continue
+        if trusted_source is None:
+            findings.append({
+                "code": "translation-canonical-source-not-registered",
+                "message": f"Trusted canonical source {object_id}@{canonical_revision} is not registered",
+                "object_id": object_id,
+            })
+            continue
+        if not _matches_trusted_source(source_revision, trusted_source["revision_payload"]):
+            findings.append({
+                "code": "translation-release-source-mismatch",
+                "message": f"Release content {object_id}@{canonical_revision} differs from its trusted canonical source snapshot",
+                "object_id": object_id,
+            })
+        bound_checksum = str(variant.provider_metadata.get("canonical_source_checksum", ""))
+        if bound_checksum != trusted_source["payload_checksum"]:
+            findings.append({
+                "code": "translation-source-checksum-mismatch",
+                "message": f"Variant {variant.id}@{variant.revision} is not bound to the trusted canonical source checksum",
+                "object_id": object_id,
+            })
+
         validation_findings = validate_translation_variant(
             variant,
-            list(source_revision.sentence_segments),
-            source_revision_status=source_revision.approval_status,
+            list(trusted_source["revision_payload"].get("sentence_segments", [])),
+            source_revision_status=str(trusted_source.get("approval_status", "")),
         )
         findings.extend({
             "code": item.code,
@@ -210,7 +251,7 @@ def build_release_translation_plan(
             selected_at=now,
         )
         results.append(selection)
-        selection_by_pair[(object_id, canonical_revision)] = (selection, variant)
+        selection_by_pair[(object_id, canonical_revision)] = (selection, variant, trusted_source)
 
     unexpected = sorted(set(selections_by_object) - {object_id for object_id, _ in resolved_pairs})
     for object_id in unexpected:
@@ -234,11 +275,11 @@ def build_release_translation_plan(
                     "object_id": block.source_object_id,
                 })
                 continue
-            _, variant = selected
-            source_revision = obj.get_revision(block.source_revision)
+            _, variant, trusted_source = selected
+            trusted_segments = list(trusted_source["revision_payload"].get("sentence_segments", []))
             translated_template, materialization_error = _materialize_translated_template(
                 block.source_template_content,
-                list(source_revision.sentence_segments) if source_revision else [],
+                trusted_segments,
                 list(variant.segment_translations),
             )
             if materialization_error or translated_template is None:
