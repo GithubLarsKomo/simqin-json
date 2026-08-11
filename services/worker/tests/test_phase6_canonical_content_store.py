@@ -63,6 +63,24 @@ def test_canonical_snapshot_rejects_unapproved_revision(tmp_path, monkeypatch):
     assert "Only approved" in str(response.json()["detail"])
 
 
+def test_canonical_snapshot_rejects_segment_not_matching_content(tmp_path, monkeypatch):
+    monkeypatch.setenv("STORAGE_DIR", str(tmp_path))
+    payload = _snapshot_payload()
+    payload["revision"]["sentence_segments"][0]["source_text"] = "Anderer Text."
+    response = client.post("/api/v1/content/canonical-snapshots", headers=_APPROVER, json=payload)
+    assert response.status_code == 400
+    assert "not present in canonical_content" in str(response.json()["detail"])
+
+
+def test_canonical_snapshot_rejects_wrong_segment_source_revision(tmp_path, monkeypatch):
+    monkeypatch.setenv("STORAGE_DIR", str(tmp_path))
+    payload = _snapshot_payload()
+    payload["revision"]["sentence_segments"][0]["source_revision"] = 2
+    response = client.post("/api/v1/content/canonical-snapshots", headers=_APPROVER, json=payload)
+    assert response.status_code == 400
+    assert "does not match canonical revision" in str(response.json()["detail"])
+
+
 def test_canonical_snapshot_read_detects_payload_tampering(tmp_path, monkeypatch):
     monkeypatch.setenv("STORAGE_DIR", str(tmp_path))
     created = client.post("/api/v1/content/canonical-snapshots", headers=_APPROVER, json=_snapshot_payload())
