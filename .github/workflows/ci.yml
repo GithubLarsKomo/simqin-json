@@ -45,6 +45,8 @@ jobs:
           paths = {route.path for route in app.routes}
           required = {
               '/api/v1/content/resolve',
+              '/api/v1/content/canonical-snapshots',
+              '/api/v1/content/canonical-snapshots/{object_id}/{revision}',
               '/api/v1/translations/variants',
               '/api/v1/translations/variants/{variant_id}/{revision}',
               '/api/v1/translations/variants/{variant_id}/{revision}/history',
@@ -113,6 +115,8 @@ jobs:
               '/api/v1/content/graph',
               '/api/v1/content/validate',
               '/api/v1/content/resolve',
+              '/api/v1/content/canonical-snapshots',
+              '/api/v1/content/canonical-snapshots/{object_id}/{revision}',
               '/api/v1/translations/validate',
               '/api/v1/translations/variants',
               '/api/v1/translations/variants/{variant_id}/{revision}',
