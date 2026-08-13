@@ -85,7 +85,6 @@ def _translated_candidate(candidate_id: str = "cand-en", release_id: str = "rel-
 
 
 def _persist_candidate_sources(payload: dict) -> None:
-    """Register the exact pinned revisions used by a candidate test fixture."""
     store = CanonicalContentStore()
     pins = payload.get("pinned_revisions", {})
     for object_row in payload.get("objects", []):
@@ -156,12 +155,7 @@ def _persist_translation(
         store.transition("tr-root-en", 3, status="approved", changed_by="approver-a")
 
 
-def _create_candidate(
-    payload: dict,
-    headers: dict[str, str] = _AUTHOR,
-    *,
-    register_sources: bool = True,
-):
+def _create_candidate(payload: dict, headers: dict[str, str] = _AUTHOR, *, register_sources: bool = True):
     if register_sources:
         _persist_candidate_sources(payload)
     return client.post("/api/v1/ifu/release-candidates", headers=headers, json=payload)
@@ -209,11 +203,9 @@ def test_release_requires_approved_candidate_and_approver(tmp_path, monkeypatch)
     monkeypatch.setenv("STORAGE_DIR", str(tmp_path))
     created = _create_candidate(_candidate_payload())
     assert created.status_code == 201
-
     before_approval = _publish("cand-1")
     assert before_approval.status_code == 400
     assert "must be approved" in str(before_approval.json()["detail"])
-
     assert _approve("cand-1").status_code == 200
     reviewer_publish = _publish("cand-1", _REVIEWER)
     assert reviewer_publish.status_code == 403
@@ -234,9 +226,17 @@ def test_release_from_candidate_is_pinned_immutable_and_persistent(tmp_path, mon
     assert candidate.status_code == 201
     candidate_body = candidate.json()
     assert candidate_body["payload_checksum"]
+    assert candidate_body["audit_sequence"] == 1
+    assert candidate_body["audit_checksum"]
     assert candidate_body["release_id"] == "rel-1"
     assert candidate_body["version"] == 1
     assert _approve("cand-1").status_code == 200
+
+    history = client.get("/api/v1/ifu/release-candidates/cand-1/history")
+    assert history.status_code == 200
+    events = history.json()["events"]
+    assert [event["sequence_no"] for event in events] == [1, 2]
+    assert events[1]["previous_event_checksum"] == events[0]["event_checksum"]
 
     created = _publish("cand-1")
     assert created.status_code == 201
@@ -254,10 +254,10 @@ def test_release_from_candidate_is_pinned_immutable_and_persistent(tmp_path, mon
     fetched = client.get("/api/v1/ifu/releases/rel-1")
     assert fetched.status_code == 200
     assert fetched.json()["release_checksum"] == body["release_checksum"]
-
     candidate_after = client.get("/api/v1/ifu/release-candidates/cand-1")
     assert candidate_after.status_code == 200
     assert candidate_after.json()["status"] == "released"
+    assert candidate_after.json()["audit_sequence"] == 3
 
 
 def test_candidate_rejects_unresolved_required_slot(tmp_path, monkeypatch):
@@ -275,11 +275,9 @@ def test_candidate_read_detects_stored_payload_tampering(tmp_path, monkeypatch):
     assert _create_candidate(_candidate_payload()).status_code == 201
     database = tmp_path / "phase6-release-candidates.sqlite3"
     with sqlite3.connect(database) as connection:
-        row = connection.execute(
-            "SELECT payload_json FROM release_candidates WHERE candidate_id = ?", ("cand-1",)
-        ).fetchone()
+        row = connection.execute("SELECT payload_json FROM release_candidates WHERE candidate_id = ?", ("cand-1",)).fetchone()
         payload = json.loads(row[0])
-        payload["slot_values"]["name"] = "Mallory"
+        payload["slot_values"]["name"] = "Changed"
         connection.execute(
             "UPDATE release_candidates SET payload_json = ? WHERE candidate_id = ?",
             (json.dumps(payload, sort_keys=True), "cand-1"),
@@ -287,6 +285,22 @@ def test_candidate_read_detects_stored_payload_tampering(tmp_path, monkeypatch):
     fetched = client.get("/api/v1/ifu/release-candidates/cand-1")
     assert fetched.status_code == 500
     assert fetched.json()["detail"]["message"] == "Stored release candidate integrity check failed"
+
+
+def test_candidate_read_detects_audit_event_tampering(tmp_path, monkeypatch):
+    monkeypatch.setenv("STORAGE_DIR", str(tmp_path))
+    assert _create_candidate(_candidate_payload()).status_code == 201
+    assert _approve("cand-1").status_code == 200
+    database = tmp_path / "phase6-release-candidates.sqlite3"
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "UPDATE release_candidate_events SET changed_by = ? WHERE candidate_id = ? AND sequence_no = 2",
+            ("altered-actor", "cand-1"),
+        )
+    fetched = client.get("/api/v1/ifu/release-candidates/cand-1")
+    assert fetched.status_code == 500
+    assert fetched.json()["detail"]["message"] == "Stored release candidate integrity check failed"
+    assert "audit event 2 failed checksum verification" in fetched.json()["detail"]["reason"]
 
 
 def test_translated_release_materializes_trusted_approved_translation(tmp_path, monkeypatch):
@@ -316,14 +330,7 @@ def test_candidate_ignores_untrusted_translation_payload(tmp_path, monkeypatch):
     monkeypatch.setenv("STORAGE_DIR", str(tmp_path))
     payload = _translated_candidate("cand-untrusted", "rel-untrusted")
     payload["translation_variants"] = [
-        {
-            "id": "tr-root-en",
-            "content_object_id": "root",
-            "canonical_revision": 1,
-            "target_language": "en-US",
-            "revision": 3,
-            "status": "approved",
-        }
+        {"id": "tr-root-en", "content_object_id": "root", "canonical_revision": 1, "target_language": "en-US", "revision": 3, "status": "approved"}
     ]
     response = _create_candidate(payload)
     assert response.status_code == 400
