@@ -123,15 +123,31 @@ class ReleaseCandidateStore:
             "SELECT candidate_id, payload_checksum FROM release_candidates ORDER BY candidate_id"
         ).fetchall()
         for candidate in candidates:
-            previous = ""
             rows = connection.execute(
                 """
-                SELECT event_id, status, changed_at, changed_by, comment
+                SELECT event_id, sequence_no, status, changed_at, changed_by, comment,
+                       previous_event_checksum, event_checksum
                 FROM release_candidate_events
                 WHERE candidate_id = ? ORDER BY event_id
                 """,
                 (candidate["candidate_id"],),
             ).fetchall()
+            if not rows:
+                continue
+
+            # Only a completely unchained history is a legacy history. Never
+            # recalculate an already chained or partially chained history:
+            # inconsistencies must remain visible to _verified_history().
+            is_legacy = all(
+                row["sequence_no"] is None
+                and row["previous_event_checksum"] is None
+                and row["event_checksum"] is None
+                for row in rows
+            )
+            if not is_legacy:
+                continue
+
+            previous = ""
             for sequence_no, row in enumerate(rows, start=1):
                 checksum = _event_checksum(
                     candidate_id=candidate["candidate_id"],
