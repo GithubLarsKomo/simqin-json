@@ -112,7 +112,8 @@
           "items": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
           "uniqueItems": true
         },
-        "ruleset_checksum": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+        "ruleset_checksum": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "terminology_profile_checksum": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
       }
     },
     "created_at": {"type": "string", "minLength": 1},
