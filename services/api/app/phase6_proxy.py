@@ -106,6 +106,21 @@ async def phase6_get_canonical_snapshot(object_id: str, revision: int) -> dict[s
     return await _get(f"/api/v1/content/canonical-snapshots/{object_id}/{revision}")
 
 
+@router.post("/configuration/parameters", status_code=201)
+async def phase6_register_configuration_parameter(body: dict[str, Any]) -> dict[str, Any]:
+    return await _post("/api/v1/configuration/parameters", body, headers=_trusted_headers())
+
+
+@router.get("/configuration/parameters")
+async def phase6_list_configuration_parameters() -> dict[str, Any]:
+    return await _get("/api/v1/configuration/parameters")
+
+
+@router.get("/configuration/parameters/{parameter_id}/{revision}")
+async def phase6_get_configuration_parameter(parameter_id: str, revision: int) -> dict[str, Any]:
+    return await _get(f"/api/v1/configuration/parameters/{parameter_id}/{revision}")
+
+
 @router.post("/translations/validate")
 async def phase6_translation_validate(body: dict[str, Any]) -> dict[str, Any]:
     return await _post("/api/v1/translations/validate", body)
