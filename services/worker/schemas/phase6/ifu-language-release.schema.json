@@ -106,7 +106,12 @@
         "object_revisions_read": {"type": "array", "items": {"type": "string"}},
         "aliases_followed": {"type": "array", "items": {"type": "string"}},
         "release_candidate_id": {"type": "string", "minLength": 1},
-        "release_candidate_checksum": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+        "release_candidate_checksum": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "configuration_parameter_checksums": {
+          "type": "array",
+          "items": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "uniqueItems": true
+        }
       }
     },
     "created_at": {"type": "string", "minLength": 1},
