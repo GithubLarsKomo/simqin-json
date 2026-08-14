@@ -95,6 +95,13 @@ async def phase6_list_rulesets() -> dict[str, Any]: return await _get("/api/v1/r
 @router.get("/rulesets/{ruleset_revision}")
 async def phase6_get_ruleset(ruleset_revision: str) -> dict[str, Any]: return await _get(f"/api/v1/rulesets/{ruleset_revision}")
 
+@router.post("/terminology/profiles", status_code=201)
+async def phase6_register_terminology_profile(body: dict[str, Any]) -> dict[str, Any]: return await _post("/api/v1/terminology/profiles", body, headers=_trusted_headers())
+@router.get("/terminology/profiles")
+async def phase6_list_terminology_profiles() -> dict[str, Any]: return await _get("/api/v1/terminology/profiles")
+@router.get("/terminology/profiles/{profile_revision}")
+async def phase6_get_terminology_profile(profile_revision: str) -> dict[str, Any]: return await _get(f"/api/v1/terminology/profiles/{profile_revision}")
+
 @router.post("/translations/validate")
 async def phase6_translation_validate(body: dict[str, Any]) -> dict[str, Any]: return await _post("/api/v1/translations/validate", body)
 @router.post("/translations/variants", status_code=201)
