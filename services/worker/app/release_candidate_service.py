@@ -15,6 +15,7 @@ from .release_builder import ReleaseBuildError, build_language_release_snapshot
 from .release_translation import build_release_translation_plan
 from .ruleset_store import RulesetStore
 from .scoped_content_resolver import resolve_content_tree
+from .terminology_store import TerminologyProfileStore
 from .translation_store import TranslationVariantStore
 from .translations import TranslationVariant
 
@@ -145,10 +146,33 @@ def _trusted_ruleset(ruleset_revision: str, asserted_rows: list[dict[str, Any]])
     return [MultiplicityRule.from_dict(row) for row in trusted_rows], str(trusted["payload_checksum"])
 
 
+def _trusted_terminology_profile(profile_revision: str) -> str:
+    revision = profile_revision.strip()
+    if not revision:
+        return ""
+    try:
+        trusted = TerminologyProfileStore().get(revision)
+    except ValueError as exc:
+        raise ReleaseBuildError([{
+            "code": "terminology-profile-integrity-failed",
+            "message": str(exc),
+            "terminology_profile_revision": revision,
+        }]) from exc
+    if trusted is None:
+        raise ReleaseBuildError([{
+            "code": "terminology-profile-not-registered",
+            "message": f"Trusted terminology profile {revision} is not registered",
+            "terminology_profile_revision": revision,
+        }])
+    return str(trusted["payload_checksum"])
+
+
 def build_from_candidate_payload(payload: dict[str, Any], *, release_id: str, version: int, created_by: str, candidate_id: str = "", candidate_checksum: str = "") -> Any:
     objects = _objects(list(payload.get("objects", [])))
     ruleset_revision = str(payload.get("ruleset_revision", ""))
     rules, ruleset_checksum = _trusted_ruleset(ruleset_revision, list(payload.get("multiplicity_rules", [])))
+    terminology_profile_revision = str(payload.get("terminology_profile_revision", ""))
+    terminology_profile_checksum = _trusted_terminology_profile(terminology_profile_revision)
     tree = resolve_content_tree(
         root_object_ids=list(payload.get("root_object_ids", [])),
         objects=objects,
@@ -181,6 +205,8 @@ def build_from_candidate_payload(payload: dict[str, Any], *, release_id: str, ve
         extra_provenance["configuration_parameter_checksums"] = configuration_checksums
     if ruleset_checksum:
         extra_provenance["ruleset_checksum"] = ruleset_checksum
+    if terminology_profile_checksum:
+        extra_provenance["terminology_profile_checksum"] = terminology_profile_checksum
     return build_language_release_snapshot(
         release_id=release_id,
         product_id=str(payload.get("product_id", "")),
@@ -192,7 +218,7 @@ def build_from_candidate_payload(payload: dict[str, Any], *, release_id: str, ve
         translation_selections=translation_plan.selections,
         rendered_block_overrides=translation_plan.rendered_block_overrides,
         ruleset_revision=ruleset_revision,
-        terminology_profile_revision=str(payload.get("terminology_profile_revision", "")),
+        terminology_profile_revision=terminology_profile_revision,
         source_release_id=str(payload.get("source_release_id", "")),
         created_at=datetime.now(timezone.utc).isoformat(),
         created_by=created_by,
