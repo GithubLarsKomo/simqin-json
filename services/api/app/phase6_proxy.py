@@ -28,10 +28,7 @@ async def _json_response(response: httpx.Response) -> Any:
 
 
 def _worker_unavailable(exc: httpx.RequestError) -> HTTPException:
-    return HTTPException(
-        status_code=503,
-        detail={"message": "Phase 6 worker is unavailable", "reason": str(exc)},
-    )
+    return HTTPException(status_code=503, detail={"message": "Phase 6 worker is unavailable", "reason": str(exc)})
 
 
 def _trusted_headers() -> dict[str, str]:
@@ -67,169 +64,78 @@ async def _post(path: str, body: dict[str, Any], *, headers: dict[str, str] | No
 
 
 @router.get("/content/schemas")
-async def phase6_schema_list() -> dict[str, Any]:
-    return await _get("/api/v1/content/schemas")
-
-
+async def phase6_schema_list() -> dict[str, Any]: return await _get("/api/v1/content/schemas")
 @router.get("/content/schemas/{schema_name}")
-async def phase6_schema(schema_name: str) -> dict[str, Any]:
-    return await _get(f"/api/v1/content/schemas/{schema_name}")
-
-
+async def phase6_schema(schema_name: str) -> dict[str, Any]: return await _get(f"/api/v1/content/schemas/{schema_name}")
 @router.post("/content/graph")
-async def phase6_content_graph(body: dict[str, Any]) -> dict[str, Any]:
-    return await _post("/api/v1/content/graph", body)
-
-
+async def phase6_content_graph(body: dict[str, Any]) -> dict[str, Any]: return await _post("/api/v1/content/graph", body)
 @router.post("/content/validate")
-async def phase6_content_validate(body: dict[str, Any]) -> dict[str, Any]:
-    return await _post("/api/v1/content/validate", body)
-
-
+async def phase6_content_validate(body: dict[str, Any]) -> dict[str, Any]: return await _post("/api/v1/content/validate", body)
 @router.post("/content/resolve")
-async def phase6_content_resolve(body: dict[str, Any]) -> dict[str, Any]:
-    return await _post("/api/v1/content/resolve", body)
-
+async def phase6_content_resolve(body: dict[str, Any]) -> dict[str, Any]: return await _post("/api/v1/content/resolve", body)
 
 @router.post("/content/canonical-snapshots", status_code=201)
-async def phase6_create_canonical_snapshot(body: dict[str, Any]) -> dict[str, Any]:
-    return await _post("/api/v1/content/canonical-snapshots", body, headers=_trusted_headers())
-
-
+async def phase6_create_canonical_snapshot(body: dict[str, Any]) -> dict[str, Any]: return await _post("/api/v1/content/canonical-snapshots", body, headers=_trusted_headers())
 @router.get("/content/canonical-snapshots")
-async def phase6_list_canonical_snapshots() -> dict[str, Any]:
-    return await _get("/api/v1/content/canonical-snapshots")
-
-
+async def phase6_list_canonical_snapshots() -> dict[str, Any]: return await _get("/api/v1/content/canonical-snapshots")
 @router.get("/content/canonical-snapshots/{object_id}/{revision}")
-async def phase6_get_canonical_snapshot(object_id: str, revision: int) -> dict[str, Any]:
-    return await _get(f"/api/v1/content/canonical-snapshots/{object_id}/{revision}")
-
+async def phase6_get_canonical_snapshot(object_id: str, revision: int) -> dict[str, Any]: return await _get(f"/api/v1/content/canonical-snapshots/{object_id}/{revision}")
 
 @router.post("/configuration/parameters", status_code=201)
-async def phase6_register_configuration_parameter(body: dict[str, Any]) -> dict[str, Any]:
-    return await _post("/api/v1/configuration/parameters", body, headers=_trusted_headers())
-
-
+async def phase6_register_configuration_parameter(body: dict[str, Any]) -> dict[str, Any]: return await _post("/api/v1/configuration/parameters", body, headers=_trusted_headers())
 @router.get("/configuration/parameters")
-async def phase6_list_configuration_parameters() -> dict[str, Any]:
-    return await _get("/api/v1/configuration/parameters")
-
-
+async def phase6_list_configuration_parameters() -> dict[str, Any]: return await _get("/api/v1/configuration/parameters")
 @router.get("/configuration/parameters/{parameter_id}/{revision}")
-async def phase6_get_configuration_parameter(parameter_id: str, revision: int) -> dict[str, Any]:
-    return await _get(f"/api/v1/configuration/parameters/{parameter_id}/{revision}")
+async def phase6_get_configuration_parameter(parameter_id: str, revision: int) -> dict[str, Any]: return await _get(f"/api/v1/configuration/parameters/{parameter_id}/{revision}")
 
+@router.post("/rulesets", status_code=201)
+async def phase6_register_ruleset(body: dict[str, Any]) -> dict[str, Any]: return await _post("/api/v1/rulesets", body, headers=_trusted_headers())
+@router.get("/rulesets")
+async def phase6_list_rulesets() -> dict[str, Any]: return await _get("/api/v1/rulesets")
+@router.get("/rulesets/{ruleset_revision}")
+async def phase6_get_ruleset(ruleset_revision: str) -> dict[str, Any]: return await _get(f"/api/v1/rulesets/{ruleset_revision}")
 
 @router.post("/translations/validate")
-async def phase6_translation_validate(body: dict[str, Any]) -> dict[str, Any]:
-    return await _post("/api/v1/translations/validate", body)
-
-
+async def phase6_translation_validate(body: dict[str, Any]) -> dict[str, Any]: return await _post("/api/v1/translations/validate", body)
 @router.post("/translations/variants", status_code=201)
-async def phase6_create_translation_variant(body: dict[str, Any]) -> dict[str, Any]:
-    return await _post("/api/v1/translations/variants", body, headers=_trusted_headers())
-
-
+async def phase6_create_translation_variant(body: dict[str, Any]) -> dict[str, Any]: return await _post("/api/v1/translations/variants", body, headers=_trusted_headers())
 @router.get("/translations/variants")
-async def phase6_list_translation_variants(
-    content_object_id: str = Query(default=""),
-    canonical_revision: int | None = Query(default=None, ge=1),
-    target_language: str = Query(default=""),
-    status: str = Query(default=""),
-) -> dict[str, Any]:
+async def phase6_list_translation_variants(content_object_id: str = Query(default=""), canonical_revision: int | None = Query(default=None, ge=1), target_language: str = Query(default=""), status: str = Query(default="")) -> dict[str, Any]:
     params: dict[str, Any] = {}
-    if content_object_id:
-        params["content_object_id"] = content_object_id
-    if canonical_revision is not None:
-        params["canonical_revision"] = canonical_revision
-    if target_language:
-        params["target_language"] = target_language
-    if status:
-        params["status"] = status
+    if content_object_id: params["content_object_id"] = content_object_id
+    if canonical_revision is not None: params["canonical_revision"] = canonical_revision
+    if target_language: params["target_language"] = target_language
+    if status: params["status"] = status
     return await _get("/api/v1/translations/variants", params=params)
-
-
 @router.get("/translations/variants/{variant_id}/{revision}")
-async def phase6_get_translation_variant(variant_id: str, revision: int) -> dict[str, Any]:
-    return await _get(f"/api/v1/translations/variants/{variant_id}/{revision}")
-
-
+async def phase6_get_translation_variant(variant_id: str, revision: int) -> dict[str, Any]: return await _get(f"/api/v1/translations/variants/{variant_id}/{revision}")
 @router.get("/translations/variants/{variant_id}/{revision}/history")
-async def phase6_get_translation_history(variant_id: str, revision: int) -> dict[str, Any]:
-    return await _get(f"/api/v1/translations/variants/{variant_id}/{revision}/history")
-
-
+async def phase6_get_translation_history(variant_id: str, revision: int) -> dict[str, Any]: return await _get(f"/api/v1/translations/variants/{variant_id}/{revision}/history")
 @router.post("/translations/variants/{variant_id}/{revision}/status")
-async def phase6_transition_translation_status(variant_id: str, revision: int, body: dict[str, Any]) -> dict[str, Any]:
-    return await _post(
-        f"/api/v1/translations/variants/{variant_id}/{revision}/status",
-        body,
-        headers=_trusted_headers(),
-    )
-
+async def phase6_transition_translation_status(variant_id: str, revision: int, body: dict[str, Any]) -> dict[str, Any]: return await _post(f"/api/v1/translations/variants/{variant_id}/{revision}/status", body, headers=_trusted_headers())
 
 @router.post("/ifu/releases/verify")
-async def phase6_release_verify(body: dict[str, Any]) -> dict[str, Any]:
-    return await _post("/api/v1/ifu/releases/verify", body, headers=_trusted_headers())
-
-
+async def phase6_release_verify(body: dict[str, Any]) -> dict[str, Any]: return await _post("/api/v1/ifu/releases/verify", body, headers=_trusted_headers())
 @router.post("/ifu/release-candidates", status_code=201)
-async def phase6_create_release_candidate(body: dict[str, Any]) -> dict[str, Any]:
-    return await _post("/api/v1/ifu/release-candidates", body, headers=_trusted_headers())
-
-
+async def phase6_create_release_candidate(body: dict[str, Any]) -> dict[str, Any]: return await _post("/api/v1/ifu/release-candidates", body, headers=_trusted_headers())
 @router.get("/ifu/release-candidates")
-async def phase6_list_release_candidates() -> dict[str, Any]:
-    return await _get("/api/v1/ifu/release-candidates")
-
-
+async def phase6_list_release_candidates() -> dict[str, Any]: return await _get("/api/v1/ifu/release-candidates")
 @router.get("/ifu/release-candidates/{candidate_id}")
-async def phase6_get_release_candidate(candidate_id: str) -> dict[str, Any]:
-    return await _get(f"/api/v1/ifu/release-candidates/{candidate_id}")
-
-
+async def phase6_get_release_candidate(candidate_id: str) -> dict[str, Any]: return await _get(f"/api/v1/ifu/release-candidates/{candidate_id}")
 @router.get("/ifu/release-candidates/{candidate_id}/history")
-async def phase6_get_release_candidate_history(candidate_id: str) -> dict[str, Any]:
-    return await _get(f"/api/v1/ifu/release-candidates/{candidate_id}/history")
-
-
+async def phase6_get_release_candidate_history(candidate_id: str) -> dict[str, Any]: return await _get(f"/api/v1/ifu/release-candidates/{candidate_id}/history")
 @router.post("/ifu/release-candidates/{candidate_id}/decision")
-async def phase6_decide_release_candidate(candidate_id: str, body: dict[str, Any]) -> dict[str, Any]:
-    return await _post(
-        f"/api/v1/ifu/release-candidates/{candidate_id}/decision",
-        body,
-        headers=_trusted_headers(),
-    )
-
-
+async def phase6_decide_release_candidate(candidate_id: str, body: dict[str, Any]) -> dict[str, Any]: return await _post(f"/api/v1/ifu/release-candidates/{candidate_id}/decision", body, headers=_trusted_headers())
 @router.post("/ifu/releases", status_code=201)
-async def phase6_create_release(body: dict[str, Any]) -> dict[str, Any]:
-    return await _post("/api/v1/ifu/releases", body, headers=_trusted_headers())
-
-
+async def phase6_create_release(body: dict[str, Any]) -> dict[str, Any]: return await _post("/api/v1/ifu/releases", body, headers=_trusted_headers())
 @router.get("/ifu/releases")
-async def phase6_list_releases() -> dict[str, Any]:
-    return await _get("/api/v1/ifu/releases")
-
-
+async def phase6_list_releases() -> dict[str, Any]: return await _get("/api/v1/ifu/releases")
 @router.get("/ifu/releases/{release_id}")
-async def phase6_get_release(release_id: str) -> dict[str, Any]:
-    return await _get(f"/api/v1/ifu/releases/{release_id}")
-
+async def phase6_get_release(release_id: str) -> dict[str, Any]: return await _get(f"/api/v1/ifu/releases/{release_id}")
 
 @router.get("/reviews/migrations/{migration_id}/decisions")
-async def phase6_migration_review_decisions(migration_id: str) -> dict[str, Any]:
-    return await _get(f"/api/v1/reviews/migrations/{migration_id}/decisions")
-
-
+async def phase6_migration_review_decisions(migration_id: str) -> dict[str, Any]: return await _get(f"/api/v1/reviews/migrations/{migration_id}/decisions")
 @router.post("/reviews/migrations/{migration_id}/decisions", status_code=201)
 async def phase6_create_migration_review_decision(migration_id: str, body: dict[str, Any]) -> dict[str, Any]:
-    body = dict(body)
-    body.pop("reviewer", None)
-    body.pop("role", None)
-    return await _post(
-        f"/api/v1/reviews/migrations/{migration_id}/decisions",
-        body,
-        headers=_trusted_headers(),
-    )
+    body = dict(body); body.pop("reviewer", None); body.pop("role", None)
+    return await _post(f"/api/v1/reviews/migrations/{migration_id}/decisions", body, headers=_trusted_headers())
