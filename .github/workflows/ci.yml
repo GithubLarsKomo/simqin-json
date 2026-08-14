@@ -24,20 +24,16 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
           cache: pip
           cache-dependency-path: services/worker/requirements.txt
-
       - name: Install dependencies
         run: python -m pip install --upgrade pip && pip install -r requirements.txt
-
       - name: Compile application
         run: python -m compileall app
-
       - name: Verify Phase 6 worker entrypoint
         run: |
           python - <<'PY'
@@ -49,6 +45,8 @@ jobs:
               '/api/v1/content/canonical-snapshots/{object_id}/{revision}',
               '/api/v1/configuration/parameters',
               '/api/v1/configuration/parameters/{parameter_id}/{revision}',
+              '/api/v1/rulesets',
+              '/api/v1/rulesets/{ruleset_revision}',
               '/api/v1/translations/variants',
               '/api/v1/translations/variants/{variant_id}/{revision}',
               '/api/v1/translations/variants/{variant_id}/{revision}/history',
@@ -66,17 +64,14 @@ jobs:
               raise SystemExit(f'Missing Phase 6 worker routes: {missing}')
           print('verified Phase 6 worker routes')
           PY
-
       - name: Run test suite
         run: pytest tests -q
-
       - name: Validate JSON schemas
         run: |
           python - <<'PY'
           import json
           from pathlib import Path
           from jsonschema.validators import validator_for
-
           schema_root = Path('schemas')
           paths = sorted(schema_root.rglob('*.schema.json'))
           if not paths:
@@ -96,20 +91,16 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
           cache: pip
           cache-dependency-path: services/api/requirements.txt
-
       - name: Install dependencies
         run: python -m pip install --upgrade pip && pip install -r requirements.txt
-
       - name: Compile gateway
         run: python -m compileall app
-
       - name: Verify Phase 6 gateway routes
         run: |
           python - <<'PY'
@@ -125,6 +116,8 @@ jobs:
               '/api/v1/content/canonical-snapshots/{object_id}/{revision}',
               '/api/v1/configuration/parameters',
               '/api/v1/configuration/parameters/{parameter_id}/{revision}',
+              '/api/v1/rulesets',
+              '/api/v1/rulesets/{ruleset_revision}',
               '/api/v1/translations/validate',
               '/api/v1/translations/variants',
               '/api/v1/translations/variants/{variant_id}/{revision}',
@@ -153,23 +146,18 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-
       - name: Install dependencies
         run: npm ci
-
       - name: Audit dependencies
         run: npm audit --audit-level=moderate
-
       - name: Type-check and build
         run: npm run build
-
       - name: Verify multi-page output
         run: |
           test -f dist/index.html
