@@ -47,6 +47,12 @@ if ($null -eq $canonicalCatalog.count -or $null -eq $canonicalCatalog.snapshots)
 }
 Write-Host "[OK] Trusted canonical source catalog: $($canonicalCatalog.count) snapshot(s)"
 
+$configurationCatalog = Invoke-RestMethod -Uri "$ApiBase/api/v1/configuration/parameters" -Method Get
+if ($null -eq $configurationCatalog.count -or $null -eq $configurationCatalog.parameters) {
+    throw "Configuration catalog returned an invalid contract: $($configurationCatalog | ConvertTo-Json -Depth 8)"
+}
+Write-Host "[OK] Trusted configuration catalog: $($configurationCatalog.count) parameter revision(s)"
+
 $translationCatalog = Invoke-RestMethod -Uri "$ApiBase/api/v1/translations/variants" -Method Get
 if ($null -eq $translationCatalog.count -or $null -eq $translationCatalog.variants) {
     throw "Translation catalog returned an invalid contract: $($translationCatalog | ConvertTo-Json -Depth 8)"
