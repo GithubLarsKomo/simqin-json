@@ -9,6 +9,7 @@ from typing import Any
 from .canonical_content_store import CanonicalContentStore
 from .canonical_source_validation import revision_matches_snapshot
 from .configuration import ConfigurationCatalog, ConfigurationParameter, ConfigurationValue
+from .configuration_store import ConfigurationParameterStore
 from .content_objects import ContentObject, MultiplicityRule
 from .release_builder import ReleaseBuildError, build_language_release_snapshot
 from .release_translation import build_release_translation_plan
@@ -93,6 +94,75 @@ def _validate_trusted_sources(objects: dict[str, ContentObject], resolved_tree: 
         raise ReleaseBuildError(findings)
 
 
+def _trusted_configuration_catalog(
+    parameter_rows: list[dict[str, Any]],
+    values: list[ConfigurationValue],
+) -> tuple[ConfigurationCatalog, list[str]]:
+    """Build a release catalog only from immutable server-side parameter revisions.
+
+    Full parameter rows supplied by older clients are treated as assertions, not
+    authority. If present they must exactly match the trusted stored revision.
+    """
+    supplied: dict[tuple[str, int], ConfigurationParameter] = {}
+    for row in parameter_rows:
+        parameter = ConfigurationParameter.from_dict(row)
+        key = parameter.key()
+        if key in supplied:
+            raise ValueError(f"Duplicate configuration parameter {parameter.parameter_id}@{parameter.revision}")
+        supplied[key] = parameter
+
+    required = set(supplied)
+    required.update((value.parameter_id, value.parameter_revision) for value in values)
+    store = ConfigurationParameterStore()
+    catalog = ConfigurationCatalog()
+    checksums: list[str] = []
+    findings: list[dict[str, Any]] = []
+
+    for parameter_id, revision in sorted(required):
+        if not parameter_id or revision < 1:
+            findings.append({
+                "code": "configuration-parameter-reference-invalid",
+                "message": f"Invalid configuration parameter reference {parameter_id}@{revision}",
+                "parameter_id": parameter_id,
+                "revision": revision,
+            })
+            continue
+        try:
+            trusted = store.get(parameter_id, revision)
+        except ValueError as exc:
+            findings.append({
+                "code": "configuration-parameter-integrity-failed",
+                "message": str(exc),
+                "parameter_id": parameter_id,
+                "revision": revision,
+            })
+            continue
+        if trusted is None:
+            findings.append({
+                "code": "configuration-parameter-not-registered",
+                "message": f"Trusted configuration parameter {parameter_id}@{revision} is not registered",
+                "parameter_id": parameter_id,
+                "revision": revision,
+            })
+            continue
+        trusted_parameter = ConfigurationParameter.from_dict(trusted["parameter"])
+        asserted = supplied.get((parameter_id, revision))
+        if asserted is not None and asserted.to_dict() != trusted_parameter.to_dict():
+            findings.append({
+                "code": "configuration-parameter-mismatch",
+                "message": f"Candidate parameter {parameter_id}@{revision} differs from the trusted configuration catalog",
+                "parameter_id": parameter_id,
+                "revision": revision,
+            })
+            continue
+        catalog.add(trusted_parameter)
+        checksums.append(str(trusted["payload_checksum"]))
+
+    if findings:
+        raise ReleaseBuildError(findings)
+    return catalog, checksums
+
+
 def build_from_candidate_payload(
     payload: dict[str, Any],
     *,
@@ -115,10 +185,10 @@ def build_from_candidate_payload(
     )
     _validate_trusted_sources(objects, tree)
 
-    catalog = ConfigurationCatalog()
-    for row in payload.get("configuration_parameters", []):
-        catalog.add(ConfigurationParameter.from_dict(row))
     values = [ConfigurationValue.from_dict(row) for row in payload.get("configuration_values", [])]
+    catalog, configuration_checksums = _trusted_configuration_catalog(
+        list(payload.get("configuration_parameters", [])), values
+    )
     selection_rows = list(payload.get("translation_selections", []))
     variants = _persistent_variants(selection_rows)
     translation_plan = build_release_translation_plan(
@@ -135,6 +205,8 @@ def build_from_candidate_payload(
         extra_provenance["release_candidate_id"] = candidate_id
     if candidate_checksum:
         extra_provenance["release_candidate_checksum"] = candidate_checksum
+    if configuration_checksums:
+        extra_provenance["configuration_parameter_checksums"] = configuration_checksums
     return build_language_release_snapshot(
         release_id=release_id,
         product_id=str(payload.get("product_id", "")),
