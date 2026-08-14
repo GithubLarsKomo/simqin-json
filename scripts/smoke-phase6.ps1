@@ -49,6 +49,12 @@ if ($null -eq $rulesetCatalog.count -or $null -eq $rulesetCatalog.rulesets) {
 }
 Write-Host "[OK] Trusted ruleset catalog: $($rulesetCatalog.count) ruleset(s)"
 
+$terminologyCatalog = Invoke-RestMethod -Uri "$ApiBase/api/v1/terminology/profiles" -Method Get
+if ($null -eq $terminologyCatalog.count -or $null -eq $terminologyCatalog.profiles) {
+    throw "Terminology profile catalog returned an invalid contract: $($terminologyCatalog | ConvertTo-Json -Depth 8)"
+}
+Write-Host "[OK] Trusted terminology catalog: $($terminologyCatalog.count) profile(s)"
+
 $translationCatalog = Invoke-RestMethod -Uri "$ApiBase/api/v1/translations/variants" -Method Get
 if ($null -eq $translationCatalog.count -or $null -eq $translationCatalog.variants) {
     throw "Translation catalog returned an invalid contract: $($translationCatalog | ConvertTo-Json -Depth 8)"
